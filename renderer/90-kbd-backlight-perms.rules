@@ -1,0 +1,3 @@
+# Hand the applespi keyboard backlight LED to the interactive user so the Touch
+# Bar renderer (wwx.touchbar-ai) can adjust it without root.
+ACTION=="add|change", SUBSYSTEM=="leds", KERNEL=="spi::kbd_backlight", RUN+="/usr/bin/chgrp wwx /sys%p/brightness", RUN+="/usr/bin/chmod 0660 /sys%p/brightness"

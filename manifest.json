@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "wwx.touchbar-ai",
+  "name": "Touch Bar AI",
+  "version": "1.0.0",
+  "author": "wwx",
+  "license": "MIT",
+  "description": "Touch Bar UI for the Omarchy agent: AI entry key, 生 死 善 恶 引 易 习 册 interaction keys, agent-pushed status text, and user-configurable buttons.",
+  "kinds": [
+    "service"
+  ],
+  "entryPoints": {
+    "service": "Service.qml"
+  }
+}
