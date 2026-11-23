@@ -8,9 +8,10 @@ Owns /run/t1bridge/touchbar.sock and draws ONE tree, one level at a time:
 
 An entry with `children` is a branch: tapping it descends. The rightmost key
 while descended is the level key — it carries the name of the level you are in
-and pops back up. At the root there is no level key: the `AI` branch is just a
-branch like any other (`role: "ai"` only decides the agent text area and the
-wide gap, never the layout).
+and pops back up. At the root there is no level key: every entry, the `AI`
+branch included, is drawn purely from its own fields (`gap` for the left
+spacing, `text` for the agent text area, `children` for the subtree). No label
+is special-cased anywhere.
 
 Taps:
   生  session:start : open a fresh agent session in a new terminal
@@ -22,11 +23,15 @@ line request / one JSON line reply:
   {"cmd":"ai","text":"..."} {"cmd":"normal"} {"cmd":"toggle"}
   {"cmd":"text","text":"..."} {"cmd":"status"} {"cmd":"quit"}
   {"cmd":"display","up":true|false}   one panel-backlight step (T1 STEP_DISPLAY)
-`ai` / `normal` jump to the level owned by the `role: "ai"` entry and back to the
-root; the reported mode is derived from the path, never stored separately.
+`ai` / `normal` are shorthands: `ai` = "go to the entry named by the `aiNode`
+config key", `normal` = "go to the root". `{"cmd":"goto","label":"…"}` reaches
+any node by label, `{"cmd":"root"}` is the alias of `normal`. The reported mode
+is derived from the path, never stored separately.
 Use the `t1tb` CLI instead of talking to it directly.
 
-Config: buttons.json in the plugin directory, reloaded on save.
+Config: buttons.json5 (JSON5: comments, trailing commas, bare keys) in the
+plugin directory, reloaded on save. A legacy buttons.json is still read, and
+the old normal[]/ai[] shape is folded into one tree on load.
 """
 
 import fcntl
@@ -45,9 +50,17 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+try:  # JSON5 = JSON + trailing commas, comments, bare keys
+    import json5 as _JSON5
+except ImportError:  # fall back to strict JSON, and say so in the log
+    _JSON5 = None
+
 HOME = Path.home()
 PLUGIN = HOME / ".config/omarchy/plugins/wwx.touchbar-ai"
-CONFIG_PATH = PLUGIN / "buttons.json"
+# JSON5 (comments, trailing commas, bare keys). `buttons.json5` wins; the old
+# `buttons.json` keeps working as a fallback.
+CONFIG_CANDIDATES = (PLUGIN / "buttons.json5", PLUGIN / "buttons.json")
+CONFIG_PATH = next((p for p in CONFIG_CANDIDATES if p.exists()), CONFIG_CANDIDATES[0])
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(HOME / ".local/state"))) / "t1-touchbar"
 EVENTS = STATE / "ai-events.jsonl"
 CTL_PATH = STATE / "ai.sock"
@@ -72,8 +85,9 @@ LABEL_DIM = (200, 200, 200)
 
 BUTTON_W = 182
 GAP = 8
-# Extra gap to the left of the AI entry, so it reads as an entrance.
-AI_GAP = 44
+# Gap to the left of the level key (the "‹level name" key you get once you have
+# descended), so it reads as a way out rather than one more control.
+LEVEL_GAP = 44
 # Medium gap between blocks of related keys (volume pair, brightness pair, …).
 GROUP_GAP = 22
 RADIUS = 8
@@ -88,8 +102,12 @@ TERMINAL_CLASSES = ("foot", "alacritty", "kitty", "ghostty", "org.wezfurlong.wez
 DEFAULT_CONFIG = {
     "agentWindowMatch": list(DEFAULT_AGENT_MATCH),
     "buttonWidth": 96,
-    "aiGap": 44,
+    "levelGap": 44,
     "groupGap": 22,
+    # Label of the root entry the agent hooks drive (t1tb ai / normal). It is
+    # only a lookup key for the socket commands and for the reported mode — the
+    # layout, the text area and the gaps all come from the entry's own fields.
+    "aiNode": "AI",
     "tree": [
         {"label": "音 +", "action": "builtin:volume-up", "group": 0},
         {"label": "音 −", "action": "builtin:volume-down", "group": 0},
@@ -99,7 +117,8 @@ DEFAULT_CONFIG = {
         {"label": "键 +", "action": "builtin:kbd-up", "group": 3},
         {"label": "键 −", "action": "builtin:kbd-down", "group": 3},
         {"label": "键灯", "action": "builtin:kbd-toggle", "group": 3},
-        {"label": "AI", "role": "ai", "group": 4, "children": [
+        {"label": "AI", "group": 4, "gap": 44, "text": "AI 交互模式 · 右侧 ‹AI 回根层",
+         "children": [
             {"label": "生", "action": "session:start", "group": 0},
             {"label": "死", "action": "session:end", "group": 0},
             {"label": "善", "insert": "y", "group": 1},
@@ -112,7 +131,6 @@ DEFAULT_CONFIG = {
     ],
     "birthCommand": "omarchy-launch-terminal hermes chat",
     "deathPrompt": "复盘这次会话：评估有没有值得沉淀为技能、或整理进 wiki 的内容，有就整理完，然后结束这次会话。",
-    "aiHint": "AI 交互模式 · 点此返回",
 }
 
 
@@ -171,11 +189,19 @@ def clean_entries(items, depth=0):
     return out
 
 
+def parse_config_text(text):
+    """JSON5 when available (comments, trailing commas, bare keys), else JSON."""
+    if _JSON5 is not None:
+        return _JSON5.loads(text)
+    return json.loads(text)
+
+
 def load_config():
     try:
-        raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        text = CONFIG_PATH.read_text(encoding="utf-8")
+        raw = parse_config_text(text)
         if not isinstance(raw, dict):
-            raise ValueError("not an object")
+            raise ValueError("顶层必须是对象")
     except FileNotFoundError:
         cfg = json.loads(json.dumps(DEFAULT_CONFIG))
         try:
@@ -189,7 +215,7 @@ def load_config():
         log(f"config invalid, using defaults: {exc}")
         # A typo in buttons.json used to fail silently: the bar just fell back
         # to the built-in layout and looked "almost right". Say it out loud.
-        osd(None, None, f"buttons.json 有误：{str(exc)[:48]}")
+        osd(None, None, f"配置有误({CONFIG_PATH.name})：{str(exc)[:44]}")
         return json.loads(json.dumps(DEFAULT_CONFIG))
 
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
@@ -203,20 +229,24 @@ def load_config():
         ai = clean_entries(raw.get("ai"))
         if ai:
             groups = [e["group"] for e in legacy if isinstance(e.get("group"), int)]
-            legacy.append({"label": "AI", "role": "ai",
+            old_gap = raw.get("aiGap")
+            legacy.append({"label": str(raw.get("aiNode") or "AI"),
                            "group": (max(groups) + 1) if groups else len(legacy),
+                           "gap": old_gap if isinstance(old_gap, int) and GAP <= old_gap <= 80 else 44,
+                           "text": str(raw.get("aiHint") or "") or "AI 交互模式",
                            "children": ai})
         if legacy:
             cfg["tree"] = legacy
-    for key in ("birthCommand", "deathPrompt", "aiHint"):
+    for key in ("birthCommand", "deathPrompt", "aiNode"):
         if isinstance(raw.get(key), str) and raw[key]:
             cfg[key] = raw[key]
     width = raw.get("buttonWidth")
     if isinstance(width, int) and 80 <= width <= BUTTON_W:
         cfg["buttonWidth"] = width
-    gap = raw.get("aiGap")
-    if isinstance(gap, int) and GAP <= gap <= 80:
-        cfg["aiGap"] = gap
+    for key in ("levelGap", "aiGap"):  # aiGap = the old name for levelGap
+        gap = raw.get(key)
+        if isinstance(gap, int) and GAP <= gap <= 80:
+            cfg["levelGap"] = gap
     block = raw.get("groupGap")
     if isinstance(block, int) and GAP <= block <= 60:
         cfg["groupGap"] = block
@@ -248,42 +278,61 @@ def node_at(config, path):
     return parent[index] if 0 <= index < len(parent) else None
 
 
-def path_role(config, path):
-    """Role inherited from the innermost entry along the path (''/ai)."""
+def find_level(config, label):
+    """Path of the first entry with this label anywhere in the tree (DFS)."""
+    if not label:
+        return ()
+
+    def walk(entries, prefix):
+        for index, entry in enumerate(entries):
+            here = prefix + (index,)
+            if str(entry.get("label")) == label:
+                return here
+            found = walk(entry.get("children") or [], here)
+            if found is not None:
+                return found
+        return None
+
+    return walk(config.get("tree") or [], ()) or ()
+
+
+def ai_path(config):
+    """Where `t1tb ai` goes: the entry named by the `aiNode` config key."""
+    return find_level(config, str(config.get("aiNode") or "AI"))
+
+
+def level_text(config, path):
+    """Hint text of the innermost entry with `text` along the path, else None.
+
+    Inherited downwards on purpose: the agent text area stays visible inside the
+    branch that declared it, without the layout knowing which branch that is.
+    """
     entries = config.get("tree") or []
-    role = ""
+    hint = None
     for index in path:
         if not isinstance(index, int) or not 0 <= index < len(entries):
-            return role
+            break
         node = entries[index]
-        role = str(node.get("role") or role)
+        text = node.get("text")
+        if isinstance(text, str) and text:
+            hint = text
         entries = node.get("children") or []
-    return role
-
-
-def role_path(config, role):
-    """Path of a root level that carries `role` (the mode/anchor entry)."""
-    for index, entry in enumerate(config.get("tree") or []):
-        if str(entry.get("role") or "") == role:
-            return (index,)
-    return ()
+    return hint
 
 
 def build_layout(w, h, config, path=()):
     """Return (esc_rect, text_rect|None, [(rect, item)]).
 
     One tree, one row per level. Buttons with a different `group` value get a
-    wider gap, so related pairs read as one block. An entry with `children` is a
-    branch: the tap descends a level instead of acting. While descended the
-    rightmost key is the level key: it carries the name of the level you are in
-    with a `‹` hint and pops back up. At the root there is no level key, so no
-    entry is special-cased — the `AI` branch behaves like any other branch.
-
-    A level inherited from a `role: "ai"` entry gets the agent text area and the
-    wide `aiGap` to its left.
+    wider gap, so related pairs read as one block; an entry's own `gap` overrides
+    that for its left side. An entry with `children` is a branch: the tap
+    descends a level instead of acting. While descended the rightmost key is the
+    level key: it carries the name of the level you are in with a `‹` hint and
+    pops back up. At the root there is no level key, and every entry — the `AI`
+    branch included — is drawn purely from its own fields.
     """
     button_w = int(config.get("buttonWidth") or BUTTON_W)
-    ai_gap = int(config.get("aiGap", AI_GAP))
+    level_gap = int(config.get("levelGap", LEVEL_GAP))
     group_gap = int(config.get("groupGap", GROUP_GAP))
     esc = (4, 0, ESC_W, h)
     entries = level_entries(config, path)
@@ -295,13 +344,14 @@ def build_layout(w, h, config, path=()):
     # ends up at the right edge (or next to the level key once descended).
     for index, entry in enumerate(entries):
         branch = bool(entry.get("children"))
+        gap = entry.get("gap")
         group.append({
             "type": "action",
             "label": str(entry["label"]),
             "action": "" if branch else str(entry.get("action", "")),
             "insert": str(entry.get("insert", "")),
             "submit": bool(entry.get("submit", True)),
-            "role": str(entry.get("role") or ""),
+            "gap": gap if isinstance(gap, int) and GAP <= gap <= 80 else None,
             "group": entry["group"] if isinstance(entry.get("group"), int) else 0,
             "index": index,
             "branch": branch,
@@ -318,8 +368,10 @@ def build_layout(w, h, config, path=()):
         rect = (right - button_w, 0, right, h)
         items.append((rect, item))
         # Gap to the LEFT of this key, i.e. between group[index-1] and this one.
-        if item["type"] == "up" or item.get("role") == "ai":
-            gap = ai_gap
+        if item.get("gap"):
+            gap = int(item["gap"])
+        elif item["type"] == "up":
+            gap = level_gap
         elif index > 0 and group[index - 1]["group"] != item["group"]:
             gap = group_gap
         else:
@@ -327,7 +379,7 @@ def build_layout(w, h, config, path=()):
         right -= button_w + gap
 
     text_rect = None
-    if path_role(config, path) == "ai":
+    if level_text(config, path):
         text_rect = (ESC_W + 8, 0, right - 4, h)
         if text_rect[2] - text_rect[0] < 40:
             text_rect = None
@@ -382,7 +434,7 @@ def render_frame(w, h, config, text, pressed_key=None, path=()):
     plate(esc, "esc", f_small)
 
     if text_rect:
-        shown = text or config["aiHint"]
+        shown = text or level_text(config, path) or ""
         color = LABEL_DIM if text else (140, 140, 140)
         lines = wrap_text(draw, shown, f_text, text_rect[2] - text_rect[0] - 16, 2)
         line_h = 25
@@ -502,13 +554,22 @@ class TouchBar:
             threading.Thread(target=self._delayed_exit, daemon=True).start()
             return {"ok": True, "quitting": True}
         if cmd == "status":
-            return {"ok": True, "mode": self.mode, "text": self.text}
-        if cmd == "normal":
+            return {"ok": True, "mode": self.mode, "text": self.text,
+                    "path": list(self.path), "level": str((node_at(self.config, self.path) or {}).get("label", ""))}
+        if cmd in ("normal", "root"):
             self.set_mode("normal")
             return {"ok": True, "mode": self.mode}
         if cmd == "toggle":
             self.set_mode("normal" if self.mode == "ai" else "ai")
             return {"ok": True, "mode": self.mode}
+        if cmd == "goto":
+            # Generic: any label in the tree, not just the agent node. The
+            # renderer has no idea which one "AI" is — the tree decides.
+            target = find_level(self.config, str(req.get("label") or ""))
+            if not target:
+                raise ValueError(f"no entry labelled {req.get('label')!r}")
+            self.goto(target)
+            return {"ok": True, "mode": self.mode, "path": list(self.path)}
         if cmd == "ai":
             if "text" in req:
                 self.text = str(req.get("text") or "")
@@ -570,19 +631,19 @@ class TouchBar:
 
     # ---------- drawing ----------
     def set_mode(self, mode):
-        # The bar no longer has modes: it has one tree and a path in it. `ai`
-        # means "at the level owned by the root entry marked role=ai", and the
-        # text area follows the same path test — nothing is special-cased by
-        # label, so an AI branch is just a branch.
-        self.path = role_path(self.config, "ai") if mode == "ai" else ()
+        # `ai` means "the level of the entry named by the `aiNode` config key";
+        # nothing about that entry's layout is special, it is a plain branch.
+        self.path = ai_path(self.config) if mode == "ai" else ()
         self._sync_mode()
         self.pressed_key = None
         self.dirty = True
         self.maybe_render()
 
     def _sync_mode(self):
-        """Keep the reported mode in step with the tree path (t1tb/status)."""
-        self.mode = "ai" if path_role(self.config, self.path) == "ai" else "normal"
+        """Reported mode = "ai" while the path is inside the configured ai node."""
+        agent = ai_path(self.config)
+        inside = bool(agent) and self.path[:len(agent)] == agent
+        self.mode = "ai" if inside else "normal"
 
     def maybe_render(self):
         if not self.dirty or not self.idle:
@@ -671,6 +732,16 @@ class TouchBar:
             threading.Thread(target=self.perform, args=(item,), daemon=True).start()
         except RuntimeError as exc:
             log(f"dispatch failed: {exc}")
+
+    def goto(self, path):
+        """Jump to a tree path (root is ()), used by the socket commands."""
+        if level_entries(self.config, path) is None:
+            return
+        self.path = tuple(path)
+        self._sync_mode()
+        self.pressed_key = None
+        self.dirty = True
+        self.maybe_render()
 
     # ---------- tree navigation ----------
     def push_level(self, index):
@@ -1123,7 +1194,7 @@ def main(argv):
             raw = argv[argv.index("--path") + 1].strip(",")
             tree = tuple(int(part) for part in raw.split(",") if part.strip())
         elif "--mode" in argv and argv[argv.index("--mode") + 1] == "ai":
-            tree = role_path(load_config(), "ai")
+            tree = ai_path(load_config())
         dump_frame(path, text, tree)
         return 0
 

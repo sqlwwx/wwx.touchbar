@@ -10,7 +10,7 @@ stops it when the plugin is unloaded.
 ```
 manifest.json          kind: service
 Service.qml            supervisor (Quickshell Process, 3 s restart on exit)
-buttons.json           every button, in both modes
+buttons.json5          the whole button tree (JSON5)
 renderer/touchbar_ai.py  the renderer (Hello / buffers / draw / tap)
 renderer/t1tb.py       control CLI (symlinked to ~/.local/bin/t1tb)
 renderer/launch.sh     stop stock renderer, exec renderer
@@ -104,31 +104,37 @@ CJK text cannot be typed with `wtype`, so non-ASCII inserts go through
 `wl-copy` + `Ctrl+Shift+V` (the clipboard is restored afterwards). ASCII inserts
 are typed directly.
 
-## buttons.json
+## buttons.json5
 
-Reloaded on save — no restart.
+JSON5, reloaded on save — no restart. Comments, trailing commas and bare keys
+all work. (JSON5 does **not** forgive a *missing separator* comma — `{a:1 b:2}`
+is still an error; it forgives `{a:1, b:2,}`.) A legacy `buttons.json` is still
+read if no `.json5` exists.
 
-```json
+```json5
 {
-  "buttonWidth": 96,
-  "aiGap": 44,
-  "groupGap": 22,
-  "tree": [
-    { "label": "音 +", "action": "builtin:volume-up", "group": 0 },
-    { "label": "音 −", "action": "builtin:volume-down", "group": 0 },
-    { "label": "静", "action": "builtin:mute", "group": 1 },
-    { "label": "键盘", "group": 2, "children": [
-        { "label": "键 +", "action": "builtin:kbd-up", "group": 0 },
-        { "label": "键 −", "action": "builtin:kbd-down", "group": 0 } ] },
-    { "label": "AI", "role": "ai", "group": 3, "children": [
-        { "label": "生", "action": "session:start", "group": 0 },
-        { "label": "死", "action": "session:end", "group": 0 },
-        { "label": "善", "insert": "善", "group": 1 },
-        { "label": "恶", "insert": "no", "group": 1 } ] }
+  buttonWidth: 96,
+  groupGap: 22,     // 同 group 相邻 8px，不同 group 之间这个宽度
+  levelGap: 44,     // 层级键(‹当前层名)左侧的宽间距
+  aiNode: "AI",     // t1tb ai 定位的节点名；只用于定位，不参与布局
+
+  tree: [
+    { label: "音 +", action: "builtin:volume-up", group: 0 },
+    { label: "音 −", action: "builtin:volume-down", group: 0 },
+    { label: "静", action: "builtin:mute", group: 1 },
+    { label: "键盘", group: 2, children: [
+        { label: "键 +", action: "builtin:kbd-up", group: 0 },
+        { label: "键 −", action: "builtin:kbd-down", group: 0 } ] },
+    { label: "AI", group: 3, gap: 44, text: "AI 交互模式 · 右侧 ‹AI 回根层",
+      children: [
+        { label: "生", action: "session:start", group: 0 },
+        { label: "死", action: "session:end", group: 0 },
+        { label: "善", insert: "善", group: 1 },
+        { label: "恶", insert: "no", group: 1 } ] },
   ],
-  "birthCommand": "omarchy-launch-terminal hermes chat",
-  "deathPrompt": "…",
-  "aiHint": "AI 交互模式 · 右侧 ‹AI 回根层"
+
+  birthCommand: "omarchy-launch-terminal hermes chat",
+  deathPrompt: "…",
 }
 ```
 
@@ -137,16 +143,18 @@ Reloaded on save — no restart.
   **branch** instead of a key with an action: the tap descends one level and the
   bar shows that subtree. Branches draw a `›` hint and their own
   `action`/`insert` is ignored. Nesting is capped at 4 levels.
-- No entry is special-cased, the `AI` button included: it is a branch like any
-  other. At the root there is no level key; one level down the rightmost key is
-  the **level key** — it carries the name of the level you are in (with a `‹`
-  hint) and pops back up.
-- `role` — optional, `"ai"` on a branch. It only decides where the agent text
-  area appears (that level and everything below it) and which key gets the wide
-  `aiGap`, so a mode entry reads as an entrance without label special-casing.
-  `t1tb ai` / `t1tb normal` jump to the `role: "ai"` level and back to the root.
-- `aiGap` (8–80, default 44) — gap to the left of a `role: "ai"` entry and of the
-  level key.
+- No entry is special-cased, the `AI` button included — it is a plain branch
+  configured in `tree`. At the root there is no level key; one level down the
+  rightmost key is the **level key**: it carries the name of the level you are
+  in (with a `‹` hint) and pops back up.
+- `gap` (8–80) on an entry — left spacing for that key; overrides the
+  `group`/`groupGap` rule.
+- `text` on a branch — the agent text area appears on that level and every level
+  below it; the string is the idle hint (`t1tb text` overrides it while set).
+  That is how "AI mode" exists: no `aiHint`, no role, just a field on the node.
+- `aiNode` — the label `t1tb ai` jumps to, and the level whose descendants make
+  `t1tb status` report `mode: "ai"`. Pure lookup, no layout effect. `t1tb goto
+  <label>` reaches any other node.
 - `groupGap` (8–60, default 22) — gap between two buttons whose `group` differs.
   Same `group` = ordinary 8 px gap, so pairs (音+/音−, 善/恶) stay tight and
   blocks stay distinguishable.
@@ -161,16 +169,18 @@ Reloaded on save — no restart.
   ordinary configuration.
 - Buttons render left-to-right in array order: the first entry sits leftmost,
   the last one next to the level key.
-- A broken file falls back to the built-in layout **and** shows an
-  `omarchy-osd` notice (`buttons.json 有误：…`), so a missing comma cannot
-  silently pass as "the bar looks fine".
+- A file that will not parse falls back to the built-in layout **and** shows an
+  `omarchy-osd` notice (`buttons.json5 有误：…`), so a typo cannot silently pass
+  as "the bar looks fine".
 
 ## Agent side
 
 ```sh
 t1tb ai -t "等待审批：允许执行 rm -rf build/ 吗？"   # switch to AI mode + status text
 t1tb text -t "正在跑测试"                            # update the text, stay in AI mode
-t1tb normal                                          # back to the normal bar
+t1tb normal                                          # back to the normal (root) row
+t1tb goto 键盘                                       # jump to any tree node by label
+t1tb root                                            # alias of normal
 t1tb toggle | status | quit
 ```
 

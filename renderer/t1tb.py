@@ -3,6 +3,8 @@
 
   t1tb ai [-t TEXT]     enter AI mode (optionally set the status text)
   t1tb text -t TEXT     set the status text and show AI mode
+  t1tb goto LABEL       jump to any tree node by label (t1tb goto 键盘)
+  t1tb root             back to the root row (alias: normal)
   t1tb normal           back to the normal bar
   t1tb toggle           flip modes
   t1tb status           print mode + text
@@ -109,8 +111,13 @@ def main(argv):
             if text is None:
                 usage(1)
             req = {"cmd": "text", "text": text}
-        elif cmd in ("normal", "toggle", "status", "quit"):
+        elif cmd in ("normal", "toggle", "status", "quit", "root"):
             req = {"cmd": cmd}
+        elif cmd == "goto":
+            # 跳到任意节点：t1tb goto 键盘
+            if len(argv) < 2:
+                usage(1)
+            req = {"cmd": "goto", "label": argv[1]}
         elif cmd in ("-h", "--help", "help"):
             usage()
         else:
