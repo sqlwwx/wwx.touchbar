@@ -27,14 +27,8 @@
   "ai": [
     { "label": "生", "action": "session:start", "group": 0 },
     { "label": "死", "action": "session:end", "group": 0 },
-    {
-      "label": "判",
-      "group": 1,
-      "children": [
-        { "label": "善", "insert": "善", "group": 0 },
-        { "label": "恶", "insert": "no", "group": 0 }
-      ]
-    },
+    { "label": "善", "insert": "善", "group": 1 },
+    { "label": "恶", "insert": "no", "group": 1 },
     {
       "label": "进",
       "group": 2,
