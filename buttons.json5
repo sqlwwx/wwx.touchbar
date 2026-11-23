@@ -1,56 +1,44 @@
-// wwx.touchbar-ai 按钮树（JSON5：注释、尾逗号、裸键都行）
-// children = 分支；进去后最右侧是层级键（‹当前层名），点它回上一级。
-// gap       = 该键左侧的间距（覆盖 group/groupGap 规则）
-// text      = 该层出现的文字区提示（子层继承，随时可被 agent 的 status 文字覆盖）
-// aiNode    = t1tb ai / 拉取审批时定位用的节点名（只用于定位，不参与布局）
+// wwx.touchbar-ai —— 整个文件就是一棵树（JSON5：注释、尾逗号、裸键都行）
+// 顶层对象的 children 就是根层那排键；任何节点都能再有 children：点它进一层，
+// 最右侧出现层级键 ‹当前层名，点它回上一级。
+//   gap    = 该键左侧的间距（不写就用顶层的 gap）—— 想分组就在新块第一个键上写
+//   text   = 该层出现文字区，子层继承（agent 的 status 文字会覆盖它）
+//   aiNode = t1tb ai 定位的节点名（只用于定位，不参与布局）
 {
   buttonWidth: 96,
-  groupGap: 22,
+  gap: 8,
   levelGap: 44,
   aiNode: "AI",
 
-  tree: [
-    { label: "音 +", action: "builtin:volume-up", group: 0 },
-    { label: "音 −", action: "builtin:volume-down", group: 0 },
-    { label: "静", action: "builtin:mute", group: 1 },
-    { label: "亮 +", action: "builtin:brightness-up", group: 2 },
-    { label: "亮 −", action: "builtin:brightness-down", group: 2 },
+  children: [
+    { label: "音 +", action: "builtin:volume-up" },
+    { label: "音 −", action: "builtin:volume-down" },
+    { label: "静", action: "builtin:mute", gap: 22 },
+    { label: "亮 +", action: "builtin:brightness-up", gap: 22 },
+    { label: "亮 −", action: "builtin:brightness-down" },
     {
-      label: "键盘",
-      group: 3,
+      label: "键",
+      gap: 22,
       children: [
-        { label: "键 +", action: "builtin:kbd-up", group: 0 },
-        { label: "键 −", action: "builtin:kbd-down", group: 0 },
-        { label: "键", action: "builtin:kbd-toggle", group: 1 },
+        { label: "键 +", action: "builtin:kbd-up" },
+        { label: "键 −", action: "builtin:kbd-down" },
+        { label: "键", action: "builtin:kbd-toggle", gap: 22 },
       ],
     },
     {
       label: "AI",
-      group: 4,
       gap: 44,
       text: "AI 交互模式 · 右侧 ‹AI 回根层",
       children: [
-        { label: "生", action: "session:start", group: 0 },
-        { label: "死", action: "session:end", group: 0 },
-        { label: "善", insert: "善", group: 1 },
-        { label: "恶", insert: "no", group: 1 },
-        {
-          label: "进",
-          group: 2,
-          children: [
-            { label: "研", insert: "先研究清楚再动手", group: 0 },
-            { label: "易", insert: "换个方向，先别沿这条走", group: 0 },
-          ],
-        },
-        {
-          label: "沉",
-          group: 3,
-          children: [
-            { label: "习", insert: "把这次会话里可复用的内容整理评估后沉淀成技能", group: 0 },
-            { label: "册", insert: "把这次工作的经验知识整理到wiki", group: 0 },
-          ],
-        },
-        { label: "声", action: "builtin:voice-toggle", group: 4 },
+        { label: "生", action: "session:start" },
+        { label: "死", action: "session:end" },
+        { label: "善", insert: "善", gap: 22 },
+        { label: "恶", insert: "no" },
+        { label: "研", insert: "先研究清楚再动手", gap: 22 },
+        { label: "易", insert: "换个方向，先别沿这条走" },
+        { label: "习", insert: "把这次会话里可复用的内容整理评估后沉淀成技能" },
+        { label: "册", insert: "把这次工作的经验知识整理到wiki" },
+        { label: "声", action: "builtin:voice-toggle", gap: 22 },
       ],
     },
   ],

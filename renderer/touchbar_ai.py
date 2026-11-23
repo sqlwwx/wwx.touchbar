@@ -102,31 +102,31 @@ TERMINAL_CLASSES = ("foot", "alacritty", "kitty", "ghostty", "org.wezfurlong.wez
 DEFAULT_CONFIG = {
     "agentWindowMatch": list(DEFAULT_AGENT_MATCH),
     "buttonWidth": 96,
-    "levelGap": 44,
-    "groupGap": 22,
+    "gap": 8,          # default spacing between keys; an entry's own `gap` wins
+    "levelGap": 44,    # gap left of the level key
     # Label of the root entry the agent hooks drive (t1tb ai / normal). It is
     # only a lookup key for the socket commands and for the reported mode — the
     # layout, the text area and the gaps all come from the entry's own fields.
     "aiNode": "AI",
-    "tree": [
-        {"label": "音 +", "action": "builtin:volume-up", "group": 0},
-        {"label": "音 −", "action": "builtin:volume-down", "group": 0},
-        {"label": "静", "action": "builtin:mute", "group": 1},
-        {"label": "亮 +", "action": "builtin:brightness-up", "group": 2},
-        {"label": "亮 −", "action": "builtin:brightness-down", "group": 2},
-        {"label": "键 +", "action": "builtin:kbd-up", "group": 3},
-        {"label": "键 −", "action": "builtin:kbd-down", "group": 3},
-        {"label": "键灯", "action": "builtin:kbd-toggle", "group": 3},
-        {"label": "AI", "group": 4, "gap": 44, "text": "AI 交互模式 · 右侧 ‹AI 回根层",
+    "children": [
+        {"label": "音 +", "action": "builtin:volume-up"},
+        {"label": "音 −", "action": "builtin:volume-down"},
+        {"label": "静", "action": "builtin:mute", "gap": 22},
+        {"label": "亮 +", "action": "builtin:brightness-up", "gap": 22},
+        {"label": "亮 −", "action": "builtin:brightness-down"},
+        {"label": "键 +", "action": "builtin:kbd-up", "gap": 22},
+        {"label": "键 −", "action": "builtin:kbd-down"},
+        {"label": "键灯", "action": "builtin:kbd-toggle"},
+        {"label": "AI", "gap": 44, "text": "AI 交互模式 · 右侧 ‹AI 回根层",
          "children": [
-            {"label": "生", "action": "session:start", "group": 0},
-            {"label": "死", "action": "session:end", "group": 0},
-            {"label": "善", "insert": "y", "group": 1},
-            {"label": "恶", "insert": "n", "group": 1},
-            {"label": "引", "insert": "", "group": 2},
-            {"label": "易", "insert": "换个方向，先别沿这条走", "group": 3},
-            {"label": "习", "insert": "把这次会话里可复用的做法沉淀成技能", "group": 4},
-            {"label": "册", "insert": "把这次工作的结论整理进 ~/wiki", "group": 5},
+            {"label": "生", "action": "session:start"},
+            {"label": "死", "action": "session:end"},
+            {"label": "善", "insert": "y", "gap": 22},
+            {"label": "恶", "insert": "n"},
+            {"label": "引", "insert": "", "gap": 22},
+            {"label": "易", "insert": "换个方向，先别沿这条走", "gap": 22},
+            {"label": "习", "insert": "把这次会话里可复用的做法沉淀成技能", "gap": 22},
+            {"label": "册", "insert": "把这次工作的结论整理进 ~/wiki", "gap": 22},
         ]},
     ],
     "birthCommand": "omarchy-launch-terminal hermes chat",
@@ -196,6 +196,25 @@ def parse_config_text(text):
     return json.loads(text)
 
 
+def groups_to_gaps(entries, boundary_gap):
+    """Translate the deprecated `group` ints into explicit per-entry `gap`.
+
+    Old files spaced blocks with `group: 0,0,1,1,2…`; now the first key of a new
+    block simply carries `gap: <wide>`. Same picture, one less concept to keep
+    consistent by hand. Mutates the entries in place.
+    """
+    prev = None
+    for entry in entries:
+        group = entry.pop("group", None)
+        if isinstance(group, int):
+            if prev is not None and group != prev:
+                entry.setdefault("gap", boundary_gap)
+            prev = group
+        children = entry.get("children")
+        if children:
+            groups_to_gaps(children, boundary_gap)
+
+
 def load_config():
     try:
         text = CONFIG_PATH.read_text(encoding="utf-8")
@@ -219,24 +238,22 @@ def load_config():
         return json.loads(json.dumps(DEFAULT_CONFIG))
 
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
-    tree = raw.get("tree")
-    if isinstance(tree, list):
-        cfg["tree"] = clean_entries(tree)
+    children = raw.get("children")
+    if isinstance(children, list):
+        cfg["children"] = clean_entries(children)
     else:
         # Legacy two-array config (normal[] + ai[]): fold it into one tree with
         # an "AI" branch at the end, so the bar has a single root.
         legacy = clean_entries(raw.get("normal"))
         ai = clean_entries(raw.get("ai"))
         if ai:
-            groups = [e["group"] for e in legacy if isinstance(e.get("group"), int)]
             old_gap = raw.get("aiGap")
             legacy.append({"label": str(raw.get("aiNode") or "AI"),
-                           "group": (max(groups) + 1) if groups else len(legacy),
                            "gap": old_gap if isinstance(old_gap, int) and GAP <= old_gap <= 80 else 44,
                            "text": str(raw.get("aiHint") or "") or "AI 交互模式",
                            "children": ai})
         if legacy:
-            cfg["tree"] = legacy
+            cfg["children"] = legacy
     for key in ("birthCommand", "deathPrompt", "aiNode"):
         if isinstance(raw.get(key), str) and raw[key]:
             cfg[key] = raw[key]
@@ -247,9 +264,14 @@ def load_config():
         gap = raw.get(key)
         if isinstance(gap, int) and GAP <= gap <= 80:
             cfg["levelGap"] = gap
+    default_gap = raw.get("gap")
+    if isinstance(default_gap, int) and GAP <= default_gap <= 80:
+        cfg["gap"] = default_gap
+    # `groupGap` only survives as the boundary spacing used when translating a
+    # legacy `group` file into explicit `gap` values.
     block = raw.get("groupGap")
-    if isinstance(block, int) and GAP <= block <= 60:
-        cfg["groupGap"] = block
+    boundary = block if isinstance(block, int) and GAP <= block <= 80 else cfg["gap"] * 2
+    groups_to_gaps(cfg["children"], boundary)
     return cfg
 
 
@@ -258,7 +280,7 @@ def load_config():
 
 def level_entries(config, path):
     """Entries at the given tree path, or None when the path went stale."""
-    entries = config.get("tree") or []
+    entries = config.get("children") or []
     for index in path:
         if not isinstance(index, int) or not 0 <= index < len(entries):
             return None
@@ -293,7 +315,7 @@ def find_level(config, label):
                 return found
         return None
 
-    return walk(config.get("tree") or [], ()) or ()
+    return walk(config.get("children") or [], ()) or ()
 
 
 def ai_path(config):
@@ -307,7 +329,7 @@ def level_text(config, path):
     Inherited downwards on purpose: the agent text area stays visible inside the
     branch that declared it, without the layout knowing which branch that is.
     """
-    entries = config.get("tree") or []
+    entries = config.get("children") or []
     hint = None
     for index in path:
         if not isinstance(index, int) or not 0 <= index < len(entries):
@@ -333,50 +355,41 @@ def build_layout(w, h, config, path=()):
     """
     button_w = int(config.get("buttonWidth") or BUTTON_W)
     level_gap = int(config.get("levelGap", LEVEL_GAP))
-    group_gap = int(config.get("groupGap", GROUP_GAP))
+    default_gap = int(config.get("gap", GAP))
     esc = (4, 0, ESC_W, h)
     entries = level_entries(config, path)
     if entries is None:  # config edited while drilled in
         path = ()
-        entries = config.get("tree") or []
-    group = []
+        entries = config.get("children") or []
+    keys = []
     # Array order is left-to-right: the first entry sits leftmost, the last one
     # ends up at the right edge (or next to the level key once descended).
     for index, entry in enumerate(entries):
         branch = bool(entry.get("children"))
         gap = entry.get("gap")
-        group.append({
+        keys.append({
             "type": "action",
             "label": str(entry["label"]),
             "action": "" if branch else str(entry.get("action", "")),
             "insert": str(entry.get("insert", "")),
             "submit": bool(entry.get("submit", True)),
-            "gap": gap if isinstance(gap, int) and GAP <= gap <= 80 else None,
-            "group": entry["group"] if isinstance(entry.get("group"), int) else 0,
+            # One spacing knob per key: this key's left gap. No group ids.
+            "gap": gap if isinstance(gap, int) and GAP <= gap <= 80 else default_gap,
             "index": index,
             "branch": branch,
         })
     if path:
         node = node_at(config, path) or {}
-        group.append({"type": "up", "label": str(node.get("label", "‹")),
-                      "group": 10 ** 6})
+        keys.append({"type": "up", "label": str(node.get("label", "‹")),
+                     "gap": level_gap})
 
     right = w - 4
     items = []
-    for index in range(len(group) - 1, -1, -1):
-        item = group[index]
+    for item in reversed(keys):
         rect = (right - button_w, 0, right, h)
         items.append((rect, item))
-        # Gap to the LEFT of this key, i.e. between group[index-1] and this one.
-        if item.get("gap"):
-            gap = int(item["gap"])
-        elif item["type"] == "up":
-            gap = level_gap
-        elif index > 0 and group[index - 1]["group"] != item["group"]:
-            gap = group_gap
-        else:
-            gap = GAP
-        right -= button_w + gap
+        # Gap to the LEFT of this key, i.e. between keys[index-1] and this one.
+        right -= button_w + int(item["gap"])
 
     text_rect = None
     if level_text(config, path):

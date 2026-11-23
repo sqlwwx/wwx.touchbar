@@ -114,23 +114,23 @@ read if no `.json5` exists.
 ```json5
 {
   buttonWidth: 96,
-  groupGap: 22,     // 同 group 相邻 8px，不同 group 之间这个宽度
-  levelGap: 44,     // 层级键(‹当前层名)左侧的宽间距
-  aiNode: "AI",     // t1tb ai 定位的节点名；只用于定位，不参与布局
+  gap: 8,          // default spacing between keys
+  levelGap: 44,    // gap left of the level key (‹level name)
+  aiNode: "AI",    // label t1tb ai jumps to; lookup only, no layout effect
 
-  tree: [
-    { label: "音 +", action: "builtin:volume-up", group: 0 },
-    { label: "音 −", action: "builtin:volume-down", group: 0 },
-    { label: "静", action: "builtin:mute", group: 1 },
-    { label: "键盘", group: 2, children: [
-        { label: "键 +", action: "builtin:kbd-up", group: 0 },
-        { label: "键 −", action: "builtin:kbd-down", group: 0 } ] },
-    { label: "AI", group: 3, gap: 44, text: "AI 交互模式 · 右侧 ‹AI 回根层",
+  children: [      // 顶层对象的 children 就是根层那排键
+    { label: "音 +", action: "builtin:volume-up" },
+    { label: "音 −", action: "builtin:volume-down" },
+    { label: "静", action: "builtin:mute", gap: 22 },
+    { label: "亮度", gap: 22, children: [
+        { label: "亮 +", action: "builtin:brightness-up" },
+        { label: "亮 −", action: "builtin:brightness-down" } ] },
+    { label: "AI", gap: 44, text: "AI 交互模式 · 右侧 ‹AI 回根层",
       children: [
-        { label: "生", action: "session:start", group: 0 },
-        { label: "死", action: "session:end", group: 0 },
-        { label: "善", insert: "善", group: 1 },
-        { label: "恶", insert: "no", group: 1 } ] },
+        { label: "生", action: "session:start" },
+        { label: "死", action: "session:end" },
+        { label: "善", insert: "善", gap: 22 },
+        { label: "恶", insert: "no" } ] },
   ],
 
   birthCommand: "omarchy-launch-terminal hermes chat",
@@ -139,25 +139,27 @@ read if no `.json5` exists.
 ```
 
 - `buttonWidth` 80–182, default 96. Lower = more room for the text area.
-- `tree` — the whole bar, one nested array. `children` makes an entry a
-  **branch** instead of a key with an action: the tap descends one level and the
-  bar shows that subtree. Branches draw a `›` hint and their own
-  `action`/`insert` is ignored. Nesting is capped at 4 levels.
-- No entry is special-cased, the `AI` button included — it is a plain branch
-  configured in `tree`. At the root there is no level key; one level down the
-  rightmost key is the **level key**: it carries the name of the level you are
-  in (with a `‹` hint) and pops back up.
-- `gap` (8–80) on an entry — left spacing for that key; overrides the
-  `group`/`groupGap` rule.
+- The file itself is one node: its `children` are the root row. Any node with
+  `children` is a **branch** instead of a key with an action: the tap descends
+  one level and the bar shows that subtree. Branches draw a `›` hint and their
+  own `action`/`insert` is ignored. Nesting is capped at 4 levels.
+- No entry is special-cased, the `AI` button included — it is a plain branch in
+  `children`. At the root there is no level key; one level down the rightmost key
+  is the **level key**: it carries the name of the level you are in (with a `‹`
+  hint) and pops back up.
+- `gap` — spacing in front of a key. Top-level `gap` (8–80, default 8) is the
+  default; a key's own `gap` overrides it, so a new block starts with
+  `gap: 22` on its first key. There is **no** `group`/`groupGap` any more: one
+  knob per key instead of group ids that must stay consistent across the file.
 - `text` on a branch — the agent text area appears on that level and every level
   below it; the string is the idle hint (`t1tb text` overrides it while set).
   That is how "AI mode" exists: no `aiHint`, no role, just a field on the node.
 - `aiNode` — the label `t1tb ai` jumps to, and the level whose descendants make
   `t1tb status` report `mode: "ai"`. Pure lookup, no layout effect. `t1tb goto
   <label>` reaches any other node.
-- `groupGap` (8–60, default 22) — gap between two buttons whose `group` differs.
-  Same `group` = ordinary 8 px gap, so pairs (音+/音−, 善/恶) stay tight and
-  blocks stay distinguishable.
+- Legacy files are folded on load: `normal[]` + `ai[]` become `children` with an
+  `AI` branch, `group` ints become explicit `gap` values (`groupGap` as the
+  boundary width), `aiGap` becomes the branch's `gap`, `aiHint` its `text`.
 - `action` prefixes — `builtin:volume-up|volume-down|mute|brightness-up|brightness-down|kbd-up|kbd-down|kbd-toggle|kbd-off|voice-toggle|voice-on|voice-off`,
   `cmd:<shell>`, `keys:<wtype key>`, `paste:<text>`,
   `session:start`, `session:end`.
