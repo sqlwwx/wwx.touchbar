@@ -4,92 +4,60 @@
   "groupGap": 22,
   "normal": [
     {
-      "label": "音 +",
-      "action": "builtin:volume-up",
-      "group": 0
+      "label": "音量",
+      "group": 0,
+      "children": [
+        { "label": "音 +", "action": "builtin:volume-up", "group": 0 },
+        { "label": "音 −", "action": "builtin:volume-down", "group": 0 },
+        { "label": "静", "action": "builtin:mute", "group": 1 }
+      ]
     },
     {
-      "label": "音 −",
-      "action": "builtin:volume-down",
-      "group": 0
+      "label": "亮度",
+      "group": 1,
+      "children": [
+        { "label": "亮 +", "action": "builtin:brightness-up", "group": 0 },
+        { "label": "亮 −", "action": "builtin:brightness-down", "group": 0 }
+      ]
     },
     {
-      "label": "静",
-      "action": "builtin:mute",
-      "group": 1
-    },
-    {
-      "label": "亮 +",
-      "action": "builtin:brightness-up",
-      "group": 2
-    },
-    {
-      "label": "亮 −",
-      "action": "builtin:brightness-down",
-      "group": 2
-    },
-    {
-      "label": "键 +",
-      "action": "builtin:kbd-up",
-      "group": 3
-    },
-    {
-      "label": "键 −",
-      "action": "builtin:kbd-down",
-      "group": 3
-    },
-    {
-      "label": "键",
-      "action": "builtin:kbd-toggle",
-      "group": 3
+      "label": "键盘",
+      "group": 2,
+      "children": [
+        { "label": "键 +", "action": "builtin:kbd-up", "group": 0 },
+        { "label": "键 −", "action": "builtin:kbd-down", "group": 0 },
+        { "label": "键", "action": "builtin:kbd-toggle", "group": 1 }
+      ]
     }
   ],
   "ai": [
+    { "label": "生", "action": "session:start", "group": 0 },
+    { "label": "死", "action": "session:end", "group": 0 },
     {
-      "label": "生",
-      "action": "session:start",
-      "group": 0
+      "label": "判",
+      "group": 1,
+      "children": [
+        { "label": "善", "insert": "善", "group": 0 },
+        { "label": "恶", "insert": "no", "group": 0 }
+      ]
     },
     {
-      "label": "死",
-      "action": "session:end",
-      "group": 0
+      "label": "进",
+      "group": 2,
+      "children": [
+        { "label": "研", "insert": "先研究清楚再动手", "group": 0 },
+        { "label": "易", "insert": "换个方向，先别沿这条走", "group": 0 }
+      ]
     },
     {
-      "label": "善",
-      "insert": "善",
-      "group": 1
+      "label": "沉",
+      "group": 3,
+      "children": [
+        { "label": "习", "insert": "把这次会话里可复用的内容整理评估后沉淀成技能", "group": 0 },
+        { "label": "册", "insert": "把这次工作的经验知识整理到wiki", "group": 0 }
+      ]
     },
-    {
-      "label": "恶",
-      "insert": "no",
-      "group": 1
-    },
-    {
-      "label": "研",
-      "insert": "先研究清楚再动手",
-      "group": 2
-    },
-    {
-      "label": "易",
-      "insert": "换个方向，先别沿这条走",
-      "group": 2
-    },
-    {
-      "label": "习",
-      "insert": "把这次会话里可复用的内容整理评估后沉淀成技能",
-      "group": 3
-    },
-    {
-      "label": "册",
-      "insert": "把这次工作的经验知识整理到wiki",
-      "group": 3
-    },
-    {
-      "label": "声",
-      "action": "builtin:voice-toggle",
-      "group": 4
-    }
+    { "label": "声", "action": "builtin:voice-toggle", "group": 4 }
   ],
   "birthCommand": "omarchy-launch-terminal hermes chat",
   "agentWindowMatch": [

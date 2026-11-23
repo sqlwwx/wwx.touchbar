@@ -143,6 +143,27 @@ def run_cmd(cmd, timeout=2.0):
         return None
 
 
+def clean_entries(items, depth=0):
+    """Sanitise one level of the button tree; keeps valid `children` subtrees.
+
+    Depth is capped so a hand-edited file cannot make the bar unreachable.
+    """
+    out = []
+    if not isinstance(items, list) or depth > 4:
+        return out
+    for item in items:
+        if not isinstance(item, dict) or not item.get("label"):
+            continue
+        entry = dict(item)
+        children = clean_entries(item.get("children"), depth + 1)
+        if children:
+            entry["children"] = children
+        else:
+            entry.pop("children", None)
+        out.append(entry)
+    return out
+
+
 def load_config():
     try:
         raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -165,7 +186,7 @@ def load_config():
     for key in ("normal", "ai"):
         items = raw.get(key)
         if isinstance(items, list):
-            cfg[key] = [item for item in items if isinstance(item, dict) and item.get("label")]
+            cfg[key] = clean_entries(items)
     for key in ("birthCommand", "deathPrompt", "aiHint"):
         if isinstance(raw.get(key), str) and raw[key]:
             cfg[key] = raw[key]
@@ -184,12 +205,27 @@ def load_config():
 # --------------------------------------------------------------- geometry
 
 
-def build_layout(w, h, config, mode):
+def level_entries(config, mode, path):
+    """Entries at the given tree path, or None when the path went stale."""
+    entries = config.get(mode) or []
+    for index in path:
+        if not isinstance(index, int) or not 0 <= index < len(entries):
+            return None
+        children = entries[index].get("children")
+        if not children:
+            return None
+        entries = children
+    return entries
+
+
+def build_layout(w, h, config, mode, path=()):
     """Return (esc_rect, text_rect|None, [(rect, item)]).
 
     The AI entry is always the rightmost key: in normal mode it opens AI mode,
     in AI mode it goes back to the normal bar. Buttons with a different `group`
     value get a wider gap between them, so related pairs read as one block.
+    An entry with `children` is a branch: tapping it descends a level, and while
+    descended a `‹` back key sits leftmost.
     """
     button_w = int(config.get("buttonWidth") or BUTTON_W)
     # The AI entry is separated from the ordinary keys so it reads as an
@@ -197,30 +233,40 @@ def build_layout(w, h, config, mode):
     ai_gap = int(config.get("aiGap", AI_GAP))
     group_gap = int(config.get("groupGap", GROUP_GAP))
     esc = (4, 0, ESC_W, h)
-    if mode == "ai":
-        # Every AI-mode key is configured, including 生/死 (session:start /
-        # session:end). The first array entry is leftmost, so the order reads
-        # left-to-right on screen and the last entry sits next to the AI key.
-        group = []
-        for index, entry in enumerate(config["ai"]):
-            group.append({
-                "type": "ai_button",
-                "label": str(entry["label"])[:2],
-                "insert": str(entry.get("insert", "")),
-                "action": str(entry.get("action", "")),
-                "submit": bool(entry.get("submit", True)),
-                "group": entry["group"] if isinstance(entry.get("group"), int) else index // 2,
-            })
+    entries = level_entries(config, mode, path)
+    if entries is None:  # config edited while drilled in
+        path = ()
+        entries = config.get(mode) or []
+    group = []
+    # Every AI-mode key is configured, including 生/死 (session:start /
+    # session:end). The first array entry is leftmost, so the order reads
+    # left-to-right on screen and the last entry sits next to the AI key.
+    for index, entry in enumerate(entries):
+        branch = bool(entry.get("children"))
+        item = {
+            "type": "ai_button" if mode == "ai" else "action",
+            "label": str(entry["label"])[:2] if mode == "ai" else str(entry["label"]),
+            "action": "" if branch else str(entry.get("action", "")),
+            "group": entry["group"] if isinstance(entry.get("group"), int)
+                     else (index // 2 if mode == "ai" else 0),
+            "index": index,
+            "branch": branch,
+        }
+        if mode == "ai":
+            item["insert"] = str(entry.get("insert", ""))
+            item["submit"] = bool(entry.get("submit", True))
+        group.append(item)
+    # The rightmost key is the level key, always in the same slot: at the root
+    # it is the AI entrance, one level down it carries the name of the level you
+    # are in and a tap goes back up. Same slot, same gesture, no special case.
+    if path:
+        parent = level_entries(config, mode, path[:-1]) or []
+        label = "‹"
+        if 0 <= path[-1] < len(parent):
+            label = str(parent[path[-1]]["label"])
+        group.append({"type": "up", "label": label, "group": 10 ** 6})
     else:
-        group = []
-        for index, entry in enumerate(config["normal"]):
-            group.append({
-                "type": "action",
-                "label": str(entry["label"]),
-                "action": str(entry.get("action", "")),
-                "group": entry["group"] if isinstance(entry.get("group"), int) else 0,
-            })
-    group.append({"type": "ai_entry", "label": "AI", "group": 10 ** 6})
+        group.append({"type": "ai_entry", "label": "AI", "group": 10 ** 6})
 
     right = w - 4
     items = []
@@ -229,7 +275,7 @@ def build_layout(w, h, config, mode):
         rect = (right - button_w, 0, right, h)
         items.append((rect, item))
         # Gap to the LEFT of this key, i.e. between group[index-1] and this one.
-        if item["type"] == "ai_entry":
+        if item["type"] in ("ai_entry", "up"):
             gap = ai_gap
         elif index > 0 and group[index - 1]["group"] != item["group"]:
             gap = group_gap
@@ -271,7 +317,7 @@ def wrap_text(draw, text, font, max_w, max_lines):
     return [line for line in lines if line]
 
 
-def render_frame(w, h, config, mode, text, pressed_key=None):
+def render_frame(w, h, config, mode, text, pressed_key=None, path=()):
     img = Image.new("RGB", (w, h), BACKGROUND)
     draw = ImageDraw.Draw(img)
     f_wide = ImageFont.truetype(FONT_PATH, 28)
@@ -290,7 +336,7 @@ def render_frame(w, h, config, mode, text, pressed_key=None):
             draw.text(((x0 + x1 - tw) / 2 - bbox[0], (h - th) / 2 - bbox[1]),
                       label, font=font, fill=LABEL)
 
-    esc, text_rect, items = build_layout(w, h, config, mode)
+    esc, text_rect, items = build_layout(w, h, config, mode, path)
     plate(esc, "esc", f_small)
 
     if text_rect:
@@ -310,6 +356,12 @@ def render_frame(w, h, config, mode, text, pressed_key=None):
             font = f_ai
         active = pressed_key == item.get("key") or (item["type"] == "ai_entry" and mode == "ai")
         plate(rect, label, font, active)
+        if item.get("branch"):
+            # Branch key: a chevron marks "there is another level in here".
+            draw.text((rect[2] - 22, 14), "›", font=f_small, fill=LABEL_DIM)
+        elif item["type"] == "up":
+            # Level key: mirror hint that a tap goes back up.
+            draw.text((rect[0] + 10, 14), "‹", font=f_small, fill=LABEL_DIM)
     return img
 
 
@@ -327,6 +379,7 @@ class TouchBar:
         self.pressed = {}
         self.pressed_key = None
         self.mode = "normal"
+        self.path = ()
         self.text = ""
         self.config = load_config()
         self.cfg_mtime = self._config_mtime()
@@ -353,6 +406,8 @@ class TouchBar:
         if mtime and mtime != self.cfg_mtime:
             self.cfg_mtime = mtime
             self.config = load_config()
+            if level_entries(self.config, self.mode, self.path) is None:
+                self.path = ()   # the edited tree dropped the level we were in
             log("config reloaded")
             self.dirty = True
 
@@ -480,6 +535,7 @@ class TouchBar:
                 self.maybe_render()
             return
         self.mode = mode
+        self.path = ()          # every mode starts at its own root
         self.dirty = True
         self.maybe_render()
 
@@ -488,7 +544,7 @@ class TouchBar:
             return
         buf_id = self.idle.pop(0)
         mm = self.buffers[buf_id][0]
-        img = render_frame(self.w, self.h, self.config, self.mode, self.text, self.pressed_key)
+        img = render_frame(self.w, self.h, self.config, self.mode, self.text, self.pressed_key, self.path)
         mm[:] = img.tobytes("raw", "BGRX")
         frame_id = self.next_frame
         self.next_frame += 1
@@ -532,7 +588,7 @@ class TouchBar:
             self.tap(*start)
 
     def _key_at(self, x):
-        esc, text_rect, items = build_layout(self.w, self.h, self.config, self.mode)
+        esc, text_rect, items = build_layout(self.w, self.h, self.config, self.mode, self.path)
         if text_rect and text_rect[0] <= x < text_rect[2]:
             return "text"
         for rect, item in items:
@@ -543,7 +599,7 @@ class TouchBar:
         return None
 
     def _hit(self, x):
-        esc, text_rect, items = build_layout(self.w, self.h, self.config, self.mode)
+        esc, text_rect, items = build_layout(self.w, self.h, self.config, self.mode, self.path)
         if esc[0] <= x < esc[2]:
             return {"type": "esc", "label": "esc"}
         if text_rect and text_rect[0] <= x < text_rect[2]:
@@ -558,10 +614,44 @@ class TouchBar:
         if item is None:
             return
         log(f"tap {item['type']}:{item['label']} at {x},{y}")
+        # Tree navigation changes the bar's own state, so it stays on this
+        # (input) thread; leaf actions still run off-thread.
+        if item["type"] == "up":
+            self.pop_level()
+            return
+        if item.get("branch"):
+            self.push_level(item["index"])
+            return
         try:
             threading.Thread(target=self.perform, args=(item,), daemon=True).start()
         except RuntimeError as exc:
             log(f"dispatch failed: {exc}")
+
+    # ---------- tree navigation ----------
+    def push_level(self, index):
+        entries = level_entries(self.config, self.mode, self.path)
+        if not entries or not 0 <= index < len(entries):
+            return
+        if not entries[index].get("children"):
+            return
+        self.path = self.path + (index,)
+        log(f"open {entries[index]['label']} path={'/'.join(map(str, self.path))}")
+        record_event({"label": entries[index]["label"], "action": "open",
+                      "mode": self.mode, "path": list(self.path)})
+        self.pressed_key = None
+        self.dirty = True
+        self.maybe_render()
+
+    def pop_level(self):
+        if not self.path:
+            return
+        self.path = self.path[:-1]
+        log(f"back path={'/'.join(map(str, self.path)) or '-'}")
+        record_event({"label": "back", "action": "close",
+                      "mode": self.mode, "path": list(self.path)})
+        self.pressed_key = None
+        self.dirty = True
+        self.maybe_render()
 
     # ---------- actions ----------
     def perform(self, item):
@@ -977,11 +1067,11 @@ def display_brightness():
     return cur, max(top, 1)
 
 
-def dump_frame(path, mode, text):
+def dump_frame(out, mode, text, tree=()):
     config = load_config()
-    img = render_frame(2170, 60, config, mode, text)
-    img.save(path)
-    print(path)
+    img = render_frame(2170, 60, config, mode, text, None, tree)
+    img.save(out)
+    print(out)
 
 
 def main(argv):
@@ -989,7 +1079,11 @@ def main(argv):
         path = argv[argv.index("--dump") + 1]
         mode = "ai" if "--mode" in argv and argv[argv.index("--mode") + 1] == "ai" else "normal"
         text = argv[argv.index("--text") + 1] if "--text" in argv else ""
-        dump_frame(path, mode, text)
+        tree = ()
+        if "--path" in argv:
+            raw = argv[argv.index("--path") + 1].strip(",")
+            tree = tuple(int(part) for part in raw.split(",") if part.strip())
+        dump_frame(path, mode, text, tree)
         return 0
 
     STATE.mkdir(parents=True, exist_ok=True)

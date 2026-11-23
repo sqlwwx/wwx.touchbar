@@ -114,14 +114,20 @@ Reloaded on save — no restart.
   "aiGap": 44,
   "groupGap": 22,
   "normal": [
-    { "label": "音 +", "action": "builtin:volume-up", "group": 0 },
-    { "label": "音 −", "action": "builtin:volume-down", "group": 0 },
-    { "label": "静音", "action": "builtin:mute", "group": 1 }
+    { "label": "音量", "group": 0, "children": [
+        { "label": "音 +", "action": "builtin:volume-up", "group": 0 },
+        { "label": "音 −", "action": "builtin:volume-down", "group": 0 },
+        { "label": "静", "action": "builtin:mute", "group": 1 } ] },
+    { "label": "亮度", "group": 1, "children": [
+        { "label": "亮 +", "action": "builtin:brightness-up", "group": 0 },
+        { "label": "亮 −", "action": "builtin:brightness-down", "group": 0 } ] }
   ],
   "ai": [
     { "label": "生", "action": "session:start", "group": 0 },
     { "label": "死", "action": "session:end", "group": 0 },
-    { "label": "善", "insert": "y", "group": 1 },
+    { "label": "判", "group": 1, "children": [
+        { "label": "善", "insert": "y", "group": 0 },
+        { "label": "恶", "insert": "no", "group": 0 } ] },
     { "label": "⏯", "action": "cmd:playerctl play-pause", "group": 2 }
   ],
   "birthCommand": "omarchy-launch-terminal hermes chat",
@@ -150,8 +156,15 @@ Reloaded on save — no restart.
 - `session:start` / `session:end` are the only special actions: they read
   `birthCommand` / `deathPrompt` from this file. Everything else about 生/死 is
   ordinary configuration.
-- Buttons render right-to-left in array order: the first entry sits closest to
-  the AI key.
+- `children` makes an entry a **branch** instead of a key with an action: the
+  tap descends one level and the bar shows that subtree. Branches draw a `›`
+  hint and their own `action`/`insert` is ignored. Nesting is capped at 4 levels.
+- The rightmost key is the **level key**, always the same slot: at the root it
+  is `AI` (enters AI mode), one level down it carries the name of the level you
+  are in with a `‹` hint, and tapping it goes back up. There is no separate back
+  key — the same slot, the same gesture at every depth.
+- Buttons render left-to-right in array order: the first entry sits leftmost,
+  the last one next to the level key.
 
 ## Agent side
 
