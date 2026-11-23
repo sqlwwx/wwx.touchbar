@@ -3,18 +3,12 @@
   "aiGap": 44,
   "groupGap": 22,
   "normal": [
-    {
-      "label": "音量",
-      "group": 0,
-      "children": [
-        { "label": "音 +", "action": "builtin:volume-up", "group": 0 },
-        { "label": "音 −", "action": "builtin:volume-down", "group": 0 },
-        { "label": "静", "action": "builtin:mute", "group": 1 }
-      ]
-    },
+    { "label": "音 +", "action": "builtin:volume-up", "group": 0 },
+    { "label": "音 −", "action": "builtin:volume-down", "group": 0 },
+    { "label": "静", "action": "builtin:mute", "group": 1 },
     {
       "label": "亮度",
-      "group": 1,
+      "group": 2,
       "children": [
         { "label": "亮 +", "action": "builtin:brightness-up", "group": 0 },
         { "label": "亮 −", "action": "builtin:brightness-down", "group": 0 }
@@ -22,7 +16,7 @@
     },
     {
       "label": "键盘",
-      "group": 2,
+      "group": 3,
       "children": [
         { "label": "键 +", "action": "builtin:kbd-up", "group": 0 },
         { "label": "键 −", "action": "builtin:kbd-down", "group": 0 },
