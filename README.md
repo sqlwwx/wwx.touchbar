@@ -113,58 +113,57 @@ Reloaded on save — no restart.
   "buttonWidth": 96,
   "aiGap": 44,
   "groupGap": 22,
-  "normal": [
-    { "label": "音量", "group": 0, "children": [
-        { "label": "音 +", "action": "builtin:volume-up", "group": 0 },
-        { "label": "音 −", "action": "builtin:volume-down", "group": 0 },
-        { "label": "静", "action": "builtin:mute", "group": 1 } ] },
-    { "label": "亮度", "group": 1, "children": [
-        { "label": "亮 +", "action": "builtin:brightness-up", "group": 0 },
-        { "label": "亮 −", "action": "builtin:brightness-down", "group": 0 } ] }
-  ],
-  "ai": [
-    { "label": "生", "action": "session:start", "group": 0 },
-    { "label": "死", "action": "session:end", "group": 0 },
-    { "label": "判", "group": 1, "children": [
-        { "label": "善", "insert": "y", "group": 0 },
-        { "label": "恶", "insert": "no", "group": 0 } ] },
-    { "label": "⏯", "action": "cmd:playerctl play-pause", "group": 2 }
+  "tree": [
+    { "label": "音 +", "action": "builtin:volume-up", "group": 0 },
+    { "label": "音 −", "action": "builtin:volume-down", "group": 0 },
+    { "label": "静", "action": "builtin:mute", "group": 1 },
+    { "label": "键盘", "group": 2, "children": [
+        { "label": "键 +", "action": "builtin:kbd-up", "group": 0 },
+        { "label": "键 −", "action": "builtin:kbd-down", "group": 0 } ] },
+    { "label": "AI", "role": "ai", "group": 3, "children": [
+        { "label": "生", "action": "session:start", "group": 0 },
+        { "label": "死", "action": "session:end", "group": 0 },
+        { "label": "善", "insert": "善", "group": 1 },
+        { "label": "恶", "insert": "no", "group": 1 } ] }
   ],
   "birthCommand": "omarchy-launch-terminal hermes chat",
   "deathPrompt": "…",
-  "aiHint": "AI 交互模式 · 点此返回"
+  "aiHint": "AI 交互模式 · 右侧 ‹AI 回根层"
 }
 ```
 
 - `buttonWidth` 80–182, default 96. Lower = more room for the text area.
-- `aiGap` (8–80, default 44) — gap to the left of the AI key, so the entrance
-  reads as separate from the controls.
-- `groupGap` (8–60, default 22) — gap between two buttons whose `group`
-  differs. Same `group` = ordinary 8 px gap, so pairs (音+/音−, 善/恶) stay
-  tight and blocks stay distinguishable. `ai[]` entries without a `group`
-  default to pairing two by two; 生/死 are always one block of their own.
-- `action` prefixes (both `normal[]` and `ai[]`) —
-  `builtin:volume-up|volume-down|mute|brightness-up|brightness-down|kbd-up|kbd-down|kbd-toggle|kbd-off|voice-toggle|voice-on|voice-off`,
+- `tree` — the whole bar, one nested array. `children` makes an entry a
+  **branch** instead of a key with an action: the tap descends one level and the
+  bar shows that subtree. Branches draw a `›` hint and their own
+  `action`/`insert` is ignored. Nesting is capped at 4 levels.
+- No entry is special-cased, the `AI` button included: it is a branch like any
+  other. At the root there is no level key; one level down the rightmost key is
+  the **level key** — it carries the name of the level you are in (with a `‹`
+  hint) and pops back up.
+- `role` — optional, `"ai"` on a branch. It only decides where the agent text
+  area appears (that level and everything below it) and which key gets the wide
+  `aiGap`, so a mode entry reads as an entrance without label special-casing.
+  `t1tb ai` / `t1tb normal` jump to the `role: "ai"` level and back to the root.
+- `aiGap` (8–80, default 44) — gap to the left of a `role: "ai"` entry and of the
+  level key.
+- `groupGap` (8–60, default 22) — gap between two buttons whose `group` differs.
+  Same `group` = ordinary 8 px gap, so pairs (音+/音−, 善/恶) stay tight and
+  blocks stay distinguishable.
+- `action` prefixes — `builtin:volume-up|volume-down|mute|brightness-up|brightness-down|kbd-up|kbd-down|kbd-toggle|kbd-off|voice-toggle|voice-on|voice-off`,
   `cmd:<shell>`, `keys:<wtype key>`, `paste:<text>`,
   `session:start`, `session:end`.
-- `ai[].action` — optional, same four prefixes as `normal[].action`. When set
-  it wins: the tap runs the action and `insert` is ignored. Use it for AI-mode
-  keys that should do something other than paste a prompt.
-- `ai[].insert` — empty string means "just focus the agent window".
-  `"submit": false` inserts without pressing Return.
-- Tap priority per key: `action` → `insert` → focus the agent window.
+- `insert` — paste text into the agent window; empty string means "just focus".
+  `action` wins over `insert`; `"submit": false` inserts without pressing Return.
+  Tap priority per key: `action` → `insert` → focus the agent window.
 - `session:start` / `session:end` are the only special actions: they read
   `birthCommand` / `deathPrompt` from this file. Everything else about 生/死 is
   ordinary configuration.
-- `children` makes an entry a **branch** instead of a key with an action: the
-  tap descends one level and the bar shows that subtree. Branches draw a `›`
-  hint and their own `action`/`insert` is ignored. Nesting is capped at 4 levels.
-- The rightmost key is the **level key**, always the same slot: at the root it
-  is `AI` (enters AI mode), one level down it carries the name of the level you
-  are in with a `‹` hint, and tapping it goes back up. There is no separate back
-  key — the same slot, the same gesture at every depth.
 - Buttons render left-to-right in array order: the first entry sits leftmost,
   the last one next to the level key.
+- A broken file falls back to the built-in layout **and** shows an
+  `omarchy-osd` notice (`buttons.json 有误：…`), so a missing comma cannot
+  silently pass as "the bar looks fine".
 
 ## Agent side
 
