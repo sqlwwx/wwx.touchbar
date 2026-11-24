@@ -24,15 +24,15 @@ Two Hermes shell hooks (in `~/.hermes/config.yaml`, allowlisted in
 
 | hook | effect |
 | --- | --- |
-| `on_human_input_request` | AI mode + `等待审批：<prompt>` (or 需要密码 / 需要回答), spoken aloud |
-| `on_human_input_resolved` | back to the normal bar, or to the next still-pending prompt |
+| `on_human_input_request` | `t1tb goto AI -t "等待审批：<prompt>"` (or 需要密码 / 需要回答), spoken aloud |
+| `on_human_input_resolved` | `t1tb normal`, or the next still-pending prompt |
 
 A pending counter in `~/.local/state/t1-touchbar/ai-pending.json` keeps
 concurrent prompts apart and expires entries after 10 min, so a crashed turn
-cannot pin AI mode. Prompt text is force-redacted by Hermes and truncated to
+cannot pin the bar on the agent level. Prompt text is force-redacted by Hermes and truncated to
 110 chars. Voice uses `~/.local/share/t1-touchbar/tts/say.py` (edge-tts 7.3.1 +
 `pw-play`, detached so the 5 s hook budget is not blown); set Voice is optional and off-switchable, from the bar or from a shell. On the bar
-the `声` key (configurable like any other) carries `builtin:voice-toggle` and
+the `声` key (configurable like any other) runs `cmd: t1tb voice toggle` and
 shows an OSD confirming 开/关:
 
 ```sh
@@ -85,20 +85,20 @@ saved value is what the keyboard comes up with — turn the light back on before
 shutting down if you want it lit at the next boot. Without the udev rule the
 renderer falls back to `sudo -n tee` on the node (passwordless sudo only).
 
-`AI` is always the rightmost key and toggles the mode, so the same key both
-opens and closes AI mode.
+At the root the `AI` branch sits rightmost; once inside a level the rightmost
+key is the level key `‹层名`, so the same slot both enters and leaves.
 
 | key | does |
 | --- | --- |
 | esc | real `KEY_ESC` to the focused window |
-| text area (AI mode) | focus the agent window, so you can type there |
-| AI | toggle normal / ai |
-| any `ai[]` key | `action` if set, else its `insert` text + Return |
+| text area | focus the agent window, so you can type there |
+| branch (`children`) | descend a level; the rightmost key becomes `‹level name` |
+| level key | pop back up one level |
+| any leaf | run its `action: "cmd: <shell>"`; a leaf with no action just focuses the agent |
 
-`生` and `死` are ordinary `ai[]` entries with special actions:
-`session:start` (run `birthCommand`, a fresh session in a new terminal) and
-`session:end` (inject `deathPrompt` so the agent assesses skills/wiki, tidies up
-and ends). Rename, move or drop them like any other key.
+There are no special keys: `生` (`cmd: omarchy-launch-terminal hermes chat`) and
+`死` (`cmd: t1tb insert 复盘…`) are ordinary leaves whose command happens to start
+or wrap up a session. Rename, move or drop them like any other key.
 
 CJK text cannot be typed with `wtype`, so non-ASCII inserts go through
 `wl-copy` + `Ctrl+Shift+V` (the clipboard is restored afterwards). ASCII inserts
@@ -113,62 +113,46 @@ is still an error; it forgives `{a:1, b:2,}`.) The older `buttons.json5` and
 
 ```json5
 {
-  buttonWidth: 96,
-  gap: 8,          // default spacing between keys
+  buttonWidth: 85,
+  gap: 4,          // default spacing in front of every key
   levelGap: 44,    // gap left of the level key (‹level name)
-  aiNode: "AI",    // label t1tb ai jumps to; lookup only, no layout effect
 
-  children: [      // 顶层对象的 children 就是根层那排键
-    { label: "音 +", action: "builtin:volume-up" },
-    { label: "音 −", action: "builtin:volume-down" },
-    { label: "静", action: "builtin:mute", gap: 22 },
-    { label: "亮度", gap: 22, children: [
-        { label: "亮 +", action: "builtin:brightness-up" },
-        { label: "亮 −", action: "builtin:brightness-down" } ] },
+  children: [      // the file itself is the root node
+    { label: "音 +", action: "cmd: t1tb volume up" },
+    { label: "音 −", action: "cmd: t1tb volume down" },
+    { label: "静", action: "cmd: t1tb volume mute", gap: 22 },
     { label: "AI", gap: 44, text: "AI 交互模式 · 右侧 ‹AI 回根层",
       children: [
-        { label: "生", action: "session:start" },
-        { label: "死", action: "session:end" },
-        { label: "善", insert: "善", gap: 22 },
-        { label: "恶", insert: "no" } ] },
+        { label: "生", action: "cmd: omarchy-launch-terminal hermes chat" },
+        { label: "死", action: "cmd: t1tb insert 复盘这次会话…" },
+        { label: "善", action: "cmd: t1tb insert 善", gap: 22 } ] },
   ],
 
-  birthCommand: "omarchy-launch-terminal hermes chat",
-  deathPrompt: "…",
+  agentWindowMatch: ["omarchy.agent", "hermes"],
 }
 ```
 
 - `buttonWidth` 80–182, default 96. Lower = more room for the text area.
 - The file itself is one node: its `children` are the root row. Any node with
-  `children` is a **branch** instead of a key with an action: the tap descends
-  one level and the bar shows that subtree. Branches draw a `›` hint and their
-  own `action`/`insert` is ignored. Nesting is capped at 4 levels.
+  `children` is a **branch**: the tap descends a level and the bar shows that
+  subtree. Branches draw a `›` hint and their own `action` is ignored. Nesting is
+  capped at 4 levels.
 - No entry is special-cased, the `AI` button included — it is a plain branch in
   `children`. At the root there is no level key; one level down the rightmost key
   is the **level key**: it carries the name of the level you are in (with a `‹`
   hint) and pops back up.
 - `gap` — spacing in front of a key. Top-level `gap` (8–80, default 8) is the
-  default; a key's own `gap` overrides it, so a new block starts with
-  `gap: 22` on its first key. There is **no** `group`/`groupGap` any more: one
-  knob per key instead of group ids that must stay consistent across the file.
+  default; a key's own `gap` overrides it, so a new block starts with `gap: 22`
+  on its first key. There is no `group`/`groupGap`.
 - `text` on a branch — the agent text area appears on that level and every level
   below it; the string is the idle hint (`t1tb text` overrides it while set).
-  That is how "AI mode" exists: no `aiHint`, no role, just a field on the node.
-- `aiNode` — the label `t1tb ai` jumps to, and the level whose descendants make
-  `t1tb status` report `mode: "ai"`. Pure lookup, no layout effect. `t1tb goto
-  <label>` reaches any other node.
-- Legacy files are folded on load: `normal[]` + `ai[]` become `children` with an
-  `AI` branch, `group` ints become explicit `gap` values (`groupGap` as the
-  boundary width), `aiGap` becomes the branch's `gap`, `aiHint` its `text`.
-- `action` prefixes — `builtin:volume-up|volume-down|mute|brightness-up|brightness-down|kbd-up|kbd-down|kbd-toggle|kbd-off|voice-toggle|voice-on|voice-off`,
-  `cmd:<shell>`, `keys:<wtype key>`, `paste:<text>`,
-  `session:start`, `session:end`.
-- `insert` — paste text into the agent window; empty string means "just focus".
-  `action` wins over `insert`; `"submit": false` inserts without pressing Return.
-  Tap priority per key: `action` → `insert` → focus the agent window.
-- `session:start` / `session:end` are the only special actions: they read
-  `birthCommand` / `deathPrompt` from this file. Everything else about 生/死 is
-  ordinary configuration.
+- `action` — **one form only**: `cmd: <shell line>`, run through `sh -c` in its
+  own session with output discarded. Anything you can type in a terminal works
+  (`cmd: wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+`, `cmd: wtype -k F5`, …). The
+  renderer has no builtins; the shipped config just calls `t1tb`.
+- The top level holds only layout: `buttonWidth`, `gap`, `levelGap`, `children`,
+  plus `agentWindowMatch` for window focus. Nothing in the file names a mode, a
+  session or a prompt.
 - Buttons render left-to-right in array order: the first entry sits leftmost,
   the last one next to the level key.
 - A file that will not parse falls back to the built-in layout **and** shows an
@@ -178,20 +162,19 @@ is still an error; it forgives `{a:1, b:2,}`.) The older `buttons.json5` and
 ## Agent side
 
 ```sh
-t1tb ai -t "等待审批：允许执行 rm -rf build/ 吗？"   # switch to AI mode + status text
-t1tb text -t "正在跑测试"                            # update the text, stay in AI mode
-t1tb normal                                          # back to the normal (root) row
-t1tb goto 键盘                                       # jump to any tree node by label
-t1tb root                                            # alias of normal
-t1tb toggle | status | quit
+t1tb goto AI -t "等待审批：允许执行 rm -rf build/ 吗？"   # jump to a node + set the text
+t1tb text -t "正在跑测试"                                # update the text, stay here
+t1tb normal                                          # back to the root row
+t1tb root | status | quit
 ```
 
 Socket: `~/.local/state/t1-touchbar/ai.sock` (one JSON line in, one out).
 Every tap is appended to `~/.local/state/t1-touchbar/ai-events.jsonl`.
 Logs: `ai-renderer.log`, `ai-stdout.log`.
 
-Besides the `t1tb` verbs the socket takes `{"cmd":"display","up":true|false}` —
-one panel-backlight step through the T1 (same path as the `亮 +/−` keys).
+Besides those, the socket takes `{"cmd":"insert","text":"…","submit":true}` (focus
+the agent window + paste) and `{"cmd":"display","up":true|false}` (one
+panel-backlight step through the T1, same path as the `亮 +/−` keys).
 
 ## Screen brightness
 

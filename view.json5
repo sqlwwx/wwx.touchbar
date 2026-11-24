@@ -3,26 +3,25 @@
 // 最右侧出现层级键 ‹当前层名，点它回上一级。
 //   gap    = 该键左侧的间距（不写就用顶层的 gap）—— 想分组就在新块第一个键上写
 //   text   = 该层出现文字区，子层继承（agent 的 status 文字会覆盖它）
-//   aiNode = t1tb ai 定位的节点名（只用于定位，不参与布局）
+// 叶子只有一种行为：action: "cmd: <shell>"。要干什么就写什么命令。
 {
   buttonWidth: 85,
   gap: 4,
   levelGap: 44,
-  aiNode: "AI",
 
   children: [
-    { label: "音 +", action: "builtin:volume-up" },
-    { label: "音 −", action: "builtin:volume-down" },
-    { label: "静", action: "builtin:mute", gap: 22 },
-    { label: "亮 +", action: "builtin:brightness-up", gap: 22 },
-    { label: "亮 −", action: "builtin:brightness-down" },
+    { label: "音 +", action: "cmd: t1tb volume up" },
+    { label: "音 −", action: "cmd: t1tb volume down" },
+    { label: "静", action: "cmd: t1tb volume mute", gap: 22 },
+    { label: "亮 +", action: "cmd: t1tb display up", gap: 22 },
+    { label: "亮 −", action: "cmd: t1tb display down" },
     {
       label: "键",
       gap: 22,
       children: [
-        { label: "键 +", action: "builtin:kbd-up" },
-        { label: "键 −", action: "builtin:kbd-down" },
-        { label: "键", action: "builtin:kbd-toggle", gap: 22 },
+        { label: "键 +", action: "cmd: t1tb kbd up" },
+        { label: "键 −", action: "cmd: t1tb kbd down" },
+        { label: "键", action: "cmd: t1tb kbd toggle", gap: 22 },
       ],
     },
     {
@@ -30,20 +29,18 @@
       gap: 44,
       text: "AI 交互模式 · 右侧 ‹AI 回根层",
       children: [
-        { label: "生", action: "session:start" },
-        { label: "死", action: "session:end" },
-        { label: "善", insert: "善", gap: 22 },
-        { label: "恶", insert: "no" },
-        { label: "研", insert: "先研究清楚再动手", gap: 22 },
-        { label: "易", insert: "换个方向，先别沿这条走" },
-        { label: "习", insert: "把这次会话里可复用的内容整理评估后沉淀成技能" },
-        { label: "册", insert: "把这次工作的经验知识整理到wiki" },
-        { label: "声", action: "builtin:voice-toggle", gap: 22 },
+        { label: "生", action: "cmd: omarchy-launch-terminal hermes chat" },
+        { label: "死", action: "cmd: t1tb insert 复盘这次会话：评估有没有值得沉淀为技能、或整理进 wiki 的内容，有就整理完，然后结束这次会话。" },
+        { label: "善", action: "cmd: t1tb insert 善", gap: 22 },
+        { label: "恶", action: "cmd: t1tb insert no" },
+        { label: "研", action: "cmd: t1tb insert 先研究清楚再动手", gap: 22 },
+        { label: "易", action: "cmd: t1tb insert 换个方向，先别沿这条走" },
+        { label: "习", action: "cmd: t1tb insert 把这次会话里可复用的内容整理评估后沉淀成技能" },
+        { label: "册", action: "cmd: t1tb insert 把这次工作的经验知识整理到wiki" },
+        { label: "声", action: "cmd: t1tb voice toggle", gap: 22 },
       ],
     },
   ],
 
-  birthCommand: "omarchy-launch-terminal hermes chat",
   agentWindowMatch: ["omarchy.agent", "hermes"],
-  deathPrompt: "复盘这次会话：评估有没有值得沉淀为技能、或整理进 wiki 的内容，有就整理完，然后结束这次会话。",
 }

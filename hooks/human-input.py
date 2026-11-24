@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hermes shell hook → Touch Bar AI mode.
+"""Hermes shell hook → Touch Bar agent level.
 
 Subscribed to two events in ~/.hermes/config.yaml:
 
@@ -7,8 +7,9 @@ Subscribed to two events in ~/.hermes/config.yaml:
                            (kind = sudo | clarify | approval)
   on_human_input_resolved  that wait ended (answered / timeout / withdrawn …)
 
-On a request it flips the Touch Bar into AI mode and writes the prompt into the
-status area; when the last pending prompt resolves it returns to the normal bar.
+On a request it jumps the bar to the "AI" node of the tree and writes the prompt
+into that level's text area; when the last pending prompt resolves it goes back to
+the root row. The node name is the only thing this hook knows about the config.
 A small counter in the state dir keeps concurrent prompts from clearing each
 other's text.
 
@@ -48,7 +49,7 @@ TRUTHY = ("1", "true", "yes", "on")
 # The Touch Bar shows two lines of ~26 CJK chars; keep the head of the prompt.
 MAX_CHARS = 110
 # A prompt whose resolution never arrives (crashed turn, killed TUI) must not pin
-# AI mode forever.
+# the agent level forever.
 STALE_SECONDS = 600
 
 
@@ -146,7 +147,7 @@ def on_request(payload, extra):
     save_pending(pending)
 
     text = f"{label}：{prompt}" if prompt else label
-    t1tb("ai", "-t", text)
+    t1tb("goto", "AI", "-t", text)
     spoke = speak_enabled()
     speak(text)
     log(f"request kind={kind} id={request_id} pending={len(pending)} speak={spoke}")
@@ -169,7 +170,7 @@ def on_resolved(extra):
         newest = sorted(pending.values(), key=lambda item: item.get("since", ""))[-1]
         label = KIND_LABEL.get(str(newest.get("kind")), "等待确认")
         prompt = newest.get("prompt") or ""
-        t1tb("ai", "-t", f"{label}：{prompt}" if prompt else label)
+        t1tb("goto", "AI", "-t", f"{label}：{prompt}" if prompt else label)
     else:
         t1tb("normal")
     save_pending(pending)

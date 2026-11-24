@@ -14,25 +14,23 @@ spacing, `text` for the agent text area, `children` for the subtree). No label
 is special-cased anywhere.
 
 Taps:
-  生  session:start : open a fresh agent session in a new terminal
-  死  session:end   : paste the wrap-up prompt into the running session
-  leaves             : `action` first, then `insert` (empty = just focus)
+  every leaf key runs `action: "cmd: <shell>"` — one form, no builtins. The
+  shell line is whatever the config says (`cmd: t1tb volume up`, `cmd: wtype -k
+  F5`, …). A leaf with no action just focuses the agent window.
 
 Control socket (for the agent): ~/.local/state/t1-touchbar/ai.sock, one JSON
 line request / one JSON line reply:
-  {"cmd":"ai","text":"..."} {"cmd":"normal"} {"cmd":"toggle"}
-  {"cmd":"text","text":"..."} {"cmd":"status"} {"cmd":"quit"}
-  {"cmd":"display","up":true|false}   one panel-backlight step (T1 STEP_DISPLAY)
-`ai` / `normal` are shorthands: `ai` = "go to the entry named by the `aiNode`
-config key", `normal` = "go to the root". `{"cmd":"goto","label":"…"}` reaches
-any node by label, `{"cmd":"root"}` is the alias of `normal`. The reported mode
-is derived from the path, never stored separately.
-Use the `t1tb` CLI instead of talking to it directly.
+  {"cmd":"goto","label":"…","text":"…"}   jump to any node by its label
+  {"cmd":"text","text":"…"}               set the agent text, stay where we are
+  {"cmd":"normal"}                        back to the root row
+  {"cmd":"status"} {"cmd":"quit"}
+  {"cmd":"insert","text":"…","submit":true}   focus the agent window + paste
+  {"cmd":"display","up":true|false}       one panel-backlight step (T1)
+Nothing in the config is special: there is no "AI mode", only levels of the one
+tree. Use the `t1tb` CLI instead of talking to it directly.
 
-Config: view.json5 (JSON5: comments, trailing commas, bare keys) in the
-plugin directory, reloaded on save. Older buttons.json5 / buttons.json are
-still read, and
-the old normal[]/ai[] shape is folded into one tree on load.
+Config: view.json5 (JSON5: comments, trailing commas, bare keys) in the plugin
+directory, reloaded on save. One file, one tree, no legacy shapes.
 """
 
 import fcntl
@@ -58,10 +56,8 @@ except ImportError:  # fall back to strict JSON, and say so in the log
 
 HOME = Path.home()
 PLUGIN = HOME / ".config/omarchy/plugins/wwx.touchbar-ai"
-# JSON5 (comments, trailing commas, bare keys). `view.json5` is the name; the
-# older `buttons.json5` / `buttons.json` still load as fallbacks.
-CONFIG_CANDIDATES = (PLUGIN / "view.json5", PLUGIN / "buttons.json5", PLUGIN / "buttons.json")
-CONFIG_PATH = next((p for p in CONFIG_CANDIDATES if p.exists()), CONFIG_CANDIDATES[0])
+# JSON5 (comments, trailing commas, bare keys). One file, no fallbacks.
+CONFIG_PATH = PLUGIN / "view.json5"
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(HOME / ".local/state"))) / "t1-touchbar"
 EVENTS = STATE / "ai-events.jsonl"
 CTL_PATH = STATE / "ai.sock"
@@ -105,33 +101,24 @@ DEFAULT_CONFIG = {
     "buttonWidth": 96,
     "gap": 8,          # default spacing between keys; an entry's own `gap` wins
     "levelGap": 44,    # gap left of the level key
-    # Label of the root entry the agent hooks drive (t1tb ai / normal). It is
-    # only a lookup key for the socket commands and for the reported mode — the
-    # layout, the text area and the gaps all come from the entry's own fields.
-    "aiNode": "AI",
     "children": [
-        {"label": "音 +", "action": "builtin:volume-up"},
-        {"label": "音 −", "action": "builtin:volume-down"},
-        {"label": "静", "action": "builtin:mute", "gap": 22},
-        {"label": "亮 +", "action": "builtin:brightness-up", "gap": 22},
-        {"label": "亮 −", "action": "builtin:brightness-down"},
-        {"label": "键 +", "action": "builtin:kbd-up", "gap": 22},
-        {"label": "键 −", "action": "builtin:kbd-down"},
-        {"label": "键灯", "action": "builtin:kbd-toggle"},
+        {"label": "音 +", "action": "cmd: t1tb volume up"},
+        {"label": "音 −", "action": "cmd: t1tb volume down"},
+        {"label": "静", "action": "cmd: t1tb volume mute", "gap": 22},
+        {"label": "亮 +", "action": "cmd: t1tb display up", "gap": 22},
+        {"label": "亮 −", "action": "cmd: t1tb display down"},
+        {"label": "键 +", "action": "cmd: t1tb kbd up", "gap": 22},
+        {"label": "键 −", "action": "cmd: t1tb kbd down"},
+        {"label": "键灯", "action": "cmd: t1tb kbd toggle"},
         {"label": "AI", "gap": 44, "text": "AI 交互模式 · 右侧 ‹AI 回根层",
          "children": [
-            {"label": "生", "action": "session:start"},
-            {"label": "死", "action": "session:end"},
-            {"label": "善", "insert": "y", "gap": 22},
-            {"label": "恶", "insert": "n"},
-            {"label": "引", "insert": "", "gap": 22},
-            {"label": "易", "insert": "换个方向，先别沿这条走", "gap": 22},
-            {"label": "习", "insert": "把这次会话里可复用的做法沉淀成技能", "gap": 22},
-            {"label": "册", "insert": "把这次工作的结论整理进 ~/wiki", "gap": 22},
+            {"label": "生", "action": "cmd: omarchy-launch-terminal hermes chat"},
+            {"label": "死", "action": "cmd: t1tb insert 复盘这次会话：评估有没有值得沉淀为技能、或整理进 wiki 的内容，有就整理完，然后结束这次会话。"},
+            {"label": "善", "action": "cmd: t1tb insert 善", "gap": 22},
+            {"label": "恶", "action": "cmd: t1tb insert no"},
+            {"label": "声", "action": "cmd: t1tb voice toggle", "gap": 22},
         ]},
     ],
-    "birthCommand": "omarchy-launch-terminal hermes chat",
-    "deathPrompt": "复盘这次会话：评估有没有值得沉淀为技能、或整理进 wiki 的内容，有就整理完，然后结束这次会话。",
 }
 
 
@@ -197,44 +184,24 @@ def parse_config_text(text):
     return json.loads(text)
 
 
-def groups_to_gaps(entries, boundary_gap):
-    """Translate the deprecated `group` ints into explicit per-entry `gap`.
-
-    Old files spaced blocks with `group: 0,0,1,1,2…`; now the first key of a new
-    block simply carries `gap: <wide>`. Same picture, one less concept to keep
-    consistent by hand. Mutates the entries in place.
-    """
-    prev = None
-    for entry in entries:
-        group = entry.pop("group", None)
-        if isinstance(group, int):
-            if prev is not None and group != prev:
-                entry.setdefault("gap", boundary_gap)
-            prev = group
-        children = entry.get("children")
-        if children:
-            groups_to_gaps(children, boundary_gap)
-
-
 def load_config():
     try:
-        text = CONFIG_PATH.read_text(encoding="utf-8")
-        raw = parse_config_text(text)
+        raw = parse_config_text(CONFIG_PATH.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("顶层必须是对象")
     except FileNotFoundError:
         cfg = json.loads(json.dumps(DEFAULT_CONFIG))
         try:
-            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n",
+                                   encoding="utf-8")
             log(f"wrote default config {CONFIG_PATH}")
         except OSError as exc:
             log(f"could not write default config: {exc}")
         return cfg
     except Exception as exc:
         log(f"config invalid, using defaults: {exc}")
-        # A typo in buttons.json used to fail silently: the bar just fell back
-        # to the built-in layout and looked "almost right". Say it out loud.
+        # A parse failure used to be silent: the bar fell back to the built-in
+        # layout and looked "almost right". Say it out loud.
         osd(None, None, f"配置有误({CONFIG_PATH.name})：{str(exc)[:44]}")
         return json.loads(json.dumps(DEFAULT_CONFIG))
 
@@ -242,37 +209,13 @@ def load_config():
     children = raw.get("children")
     if isinstance(children, list):
         cfg["children"] = clean_entries(children)
-    else:
-        # Legacy two-array config (normal[] + ai[]): fold it into one tree with
-        # an "AI" branch at the end, so the bar has a single root.
-        legacy = clean_entries(raw.get("normal"))
-        ai = clean_entries(raw.get("ai"))
-        if ai:
-            old_gap = raw.get("aiGap")
-            legacy.append({"label": str(raw.get("aiNode") or "AI"),
-                           "gap": old_gap if isinstance(old_gap, int) and GAP <= old_gap <= 80 else 44,
-                           "text": str(raw.get("aiHint") or "") or "AI 交互模式",
-                           "children": ai})
-        if legacy:
-            cfg["children"] = legacy
-    for key in ("birthCommand", "deathPrompt", "aiNode"):
-        if isinstance(raw.get(key), str) and raw[key]:
-            cfg[key] = raw[key]
     width = raw.get("buttonWidth")
     if isinstance(width, int) and 80 <= width <= BUTTON_W:
         cfg["buttonWidth"] = width
-    for key in ("levelGap", "aiGap"):  # aiGap = the old name for levelGap
+    for key in ("gap", "levelGap"):
         gap = raw.get(key)
         if isinstance(gap, int) and GAP <= gap <= 80:
-            cfg["levelGap"] = gap
-    default_gap = raw.get("gap")
-    if isinstance(default_gap, int) and GAP <= default_gap <= 80:
-        cfg["gap"] = default_gap
-    # `groupGap` only survives as the boundary spacing used when translating a
-    # legacy `group` file into explicit `gap` values.
-    block = raw.get("groupGap")
-    boundary = block if isinstance(block, int) and GAP <= block <= 80 else cfg["gap"] * 2
-    groups_to_gaps(cfg["children"], boundary)
+            cfg[key] = gap
     return cfg
 
 
@@ -317,11 +260,6 @@ def find_level(config, label):
         return None
 
     return walk(config.get("children") or [], ()) or ()
-
-
-def ai_path(config):
-    """Where `t1tb ai` goes: the entry named by the `aiNode` config key."""
-    return find_level(config, str(config.get("aiNode") or "AI"))
 
 
 def level_text(config, path):
@@ -372,8 +310,6 @@ def build_layout(w, h, config, path=()):
             "type": "action",
             "label": str(entry["label"]),
             "action": "" if branch else str(entry.get("action", "")),
-            "insert": str(entry.get("insert", "")),
-            "submit": bool(entry.get("submit", True)),
             # One spacing knob per key: this key's left gap. No group ids.
             "gap": gap if isinstance(gap, int) and GAP <= gap <= 80 else default_gap,
             "index": index,
@@ -571,28 +507,29 @@ class TouchBar:
             return {"ok": True, "mode": self.mode, "text": self.text,
                     "path": list(self.path), "level": str((node_at(self.config, self.path) or {}).get("label", ""))}
         if cmd in ("normal", "root"):
-            self.set_mode("normal")
-            return {"ok": True, "mode": self.mode}
-        if cmd == "toggle":
-            self.set_mode("normal" if self.mode == "ai" else "ai")
-            return {"ok": True, "mode": self.mode}
+            self.go_root()
+            return {"ok": True, "mode": self.mode, "path": []}
         if cmd == "goto":
-            # Generic: any label in the tree, not just the agent node. The
-            # renderer has no idea which one "AI" is — the tree decides.
-            target = find_level(self.config, str(req.get("label") or ""))
+            label = str(req.get("label") or "")
+            target = find_level(self.config, label)
             if not target:
-                raise ValueError(f"no entry labelled {req.get('label')!r}")
-            self.goto(target)
-            return {"ok": True, "mode": self.mode, "path": list(self.path)}
-        if cmd == "ai":
+                raise ValueError(f"no entry labelled {label!r}")
             if "text" in req:
                 self.text = str(req.get("text") or "")
-            self.set_mode("ai")
-            return {"ok": True, "mode": self.mode, "text": self.text}
+            self.goto(target)
+            return {"ok": True, "mode": self.mode, "text": self.text,
+                    "path": list(self.path)}
         if cmd == "text":
             self.text = str(req.get("text") or "")
-            self.set_mode("ai")
-            return {"ok": True, "mode": self.mode, "text": self.text}
+            self.dirty = True
+            self.maybe_render()
+            return {"ok": True, "mode": self.mode, "text": self.text,
+                    "path": list(self.path)}
+        if cmd == "insert":
+            text = str(req.get("text") or "")
+            threading.Thread(target=self.inject,
+                             args=(text, bool(req.get("submit", True))), daemon=True).start()
+            return {"ok": True, "insert": text}
         if cmd == "display":
             up = bool(req.get("up", True))
             threading.Thread(target=self.step_display, args=(up,), daemon=True).start()
@@ -644,20 +581,13 @@ class TouchBar:
                 self.on_input(payload)
 
     # ---------- drawing ----------
-    def set_mode(self, mode):
-        # `ai` means "the level of the entry named by the `aiNode` config key";
-        # nothing about that entry's layout is special, it is a plain branch.
-        self.path = ai_path(self.config) if mode == "ai" else ()
-        self._sync_mode()
-        self.pressed_key = None
-        self.dirty = True
-        self.maybe_render()
+    def go_root(self):
+        self.goto(())
 
     def _sync_mode(self):
-        """Reported mode = "ai" while the path is inside the configured ai node."""
-        agent = ai_path(self.config)
-        inside = bool(agent) and self.path[:len(agent)] == agent
-        self.mode = "ai" if inside else "normal"
+        """`mode` is informational: "normal" at the root, else the level's label."""
+        self.mode = "normal" if not self.path else str(
+            (node_at(self.config, self.path) or {}).get("label", "level"))
 
     def maybe_render(self):
         if not self.dirty or not self.idle:
@@ -797,13 +727,9 @@ class TouchBar:
                 self.focus_agent()
             elif kind == "action":
                 action = item.get("action", "")
-                insert = item.get("insert", "")
                 if action:
                     self.run_action(action)
                     record_event({"label": item["label"], "action": action})
-                elif insert:
-                    self.inject(insert, submit=item.get("submit", True))
-                    record_event({"label": item["label"], "action": "insert", "insert": insert})
                 else:
                     self.focus_agent()
                     record_event({"label": item["label"], "action": "focus"})
@@ -815,79 +741,19 @@ class TouchBar:
         self.sock.send(packet(TAP_KEYS, struct.pack("<B3x4H", 1, KEY_ESC, 0, 0, 0), 300))
 
     def run_action(self, action):
-        if action.startswith("session:"):
-            name = action[len("session:"):]
-            if name == "start":
-                self.spawn_birth()
-            elif name == "end":
-                self.inject(self.config["deathPrompt"])
-            else:
-                raise ValueError(f"unknown session action {name}")
-        elif action.startswith("builtin:"):
-            name = action[len("builtin:"):]
-            if name == "volume-up":
-                self.adjust_volume(6)
-            elif name == "volume-down":
-                self.adjust_volume(-6)
-            elif name == "mute":
-                run_cmd(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
-                osd("audio-volume-muted", None)
-            elif name == "brightness-up":
-                self.step_display(True)
-            elif name == "brightness-down":
-                self.step_display(False)
-            elif name == "kbd-up":
-                kbd_adjust(KBD_STEP)
-            elif name == "kbd-down":
-                kbd_adjust(-KBD_STEP)
-            elif name == "kbd-toggle":
-                kbd_toggle()
-            elif name == "kbd-off":
-                kbd_osd(kbd_set(0))
-            elif name in ("voice-toggle", "voice-on", "voice-off"):
-                self.toggle_voice(name)
-            else:
-                raise ValueError(f"unknown builtin {name}")
-        elif action.startswith("cmd:"):
-            subprocess.Popen(["sh", "-c", action[4:]], start_new_session=True)
-        elif action.startswith("keys:"):
-            run_cmd(["wtype", "-k", action[5:]])
-        elif action.startswith("paste:"):
-            self.inject(action[6:])
-        else:
-            raise ValueError(f"bad action {action!r}")
-
-    def toggle_voice(self, name):
-        """Flip the spoken-announcement switch that the hook reads."""
-        path = HOME / ".local/share/t1-touchbar/tts/tts.json"
-        try:
-            cfg = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(cfg, dict):
-                cfg = {}
-        except (OSError, ValueError):
-            cfg = {}
-        current = cfg.get("speak")
-        if not isinstance(current, bool):
-            current = True
-        if name == "voice-on":
-            enabled = True
-        elif name == "voice-off":
-            enabled = False
-        else:
-            enabled = not current
-        cfg["speak"] = enabled
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n",
-                            encoding="utf-8")
-        except OSError as exc:
-            log(f"voice config write failed: {exc}")
-            osd(None, None, message="语音开关写入失败")
-            return
-        osd(None, None, message="语音播报 开" if enabled else "语音播报 关")
+        """One form only: `cmd:<shell>`. Everything a key does is a command."""
+        if not action.startswith("cmd:"):
+            raise ValueError(f"bad action {action!r} (only cmd:<shell> is supported)")
+        subprocess.Popen(["sh", "-c", action[4:]], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def step_display(self, up):
-        """Step the panel backlight through the T1, then show it on the OSD."""
+        """Step the panel backlight through the T1, then show it on the OSD.
+
+        Only the process owning /run/t1bridge/touchbar.sock can send this opcode
+        — there is no sysfs channel — so this stays in the renderer and `t1tb
+        display up|down` asks for it over the control socket.
+        """
         before, _top = display_brightness()
         self.sock.send(packet(STEP_DISPLAY, b"\x01" if up else b"\x00", 301))
         cur, top = before, None
@@ -900,22 +766,6 @@ class TouchBar:
             osd(None, None, "屏幕亮度不可读")
             return
         osd("brightness", int(round(cur * 100 / (top or 1))))
-
-    def adjust_volume(self, delta):
-        current = 50
-        got = run_cmd(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
-        if got and got.stdout:
-            try:
-                current = int(float(got.stdout.split()[1]) * 100)
-            except Exception:
-                pass
-        value = max(0, min(100, current + delta))
-        run_cmd(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{value}%"])
-        osd("audio-volume-medium", value)
-
-    def spawn_birth(self):
-        subprocess.Popen(["sh", "-c", self.config["birthCommand"]], start_new_session=True)
-        osd(None, None, message="新会话")
 
     # ---------- agent window plumbing ----------
     @staticmethod
@@ -1080,7 +930,7 @@ class TouchBar:
             self.maybe_render()
 
 
-def osd(icon, percent, message=None):
+def osd(icon=None, percent=None, message=None):
     cmd = ["omarchy-osd", "-d", "1200"]
     if icon:
         cmd += ["-i", icon]
@@ -1091,95 +941,9 @@ def osd(icon, percent, message=None):
     run_cmd(cmd)
 
 
-# ---------- keyboard backlight ----------
-# applespi exposes the keyboard backlight as an LED; udev hands the node to wwx
-# (/etc/udev/rules.d/90-kbd-backlight-perms.rules) so taps can write it directly.
-KBD_LED = Path("/sys/class/leds/spi::kbd_backlight/brightness")
-KBD_MAX = Path("/sys/class/leds/spi::kbd_backlight/max_brightness")
-KBD_STATE = STATE / "kbd-backlight.json"
-KBD_STEP = 51  # 20 % of 255
-
-
-def kbd_levels():
-    try:
-        cur = int(KBD_LED.read_text().strip())
-        top = int(KBD_MAX.read_text().strip())
-    except (OSError, ValueError):
-        return None, None
-    return cur, max(top, 1)
-
-
-def kbd_set(level):
-    cur, top = kbd_levels()
-    if cur is None:
-        log("kbd: backlight device missing")
-        return None
-    level = max(0, min(top, int(level)))
-    try:
-        KBD_LED.write_text(f"{level}\n")
-    except PermissionError:
-        # Fallback if the udev permission rule did not run for this boot.
-        res = subprocess.run(["sudo", "-n", "tee", str(KBD_LED)],
-                             input=f"{level}\n", text=True, capture_output=True)
-        if res.returncode != 0:
-            log(f"kbd: write denied: {res.stderr.strip()}")
-            return None
-    return level
-
-
-def kbd_last():
-    try:
-        return int(json.loads(KBD_STATE.read_text()).get("last") or 0)
-    except (OSError, ValueError, AttributeError):
-        return 0
-
-
-def kbd_save_last(level):
-    try:
-        KBD_STATE.parent.mkdir(parents=True, exist_ok=True)
-        KBD_STATE.write_text(json.dumps({"last": int(level)}))
-    except OSError as exc:
-        log(f"kbd: state save failed: {exc}")
-
-
-def kbd_osd(level):
-    if level is None:
-        osd(None, None, "键盘背光不可用")
-        return
-    _cur, top = kbd_levels()
-    if level == 0:
-        osd("input-keyboard", None, "键盘背光 关")
-    else:
-        osd("input-keyboard", int(round(level * 100 / (top or 255))))
-
-
-def kbd_adjust(delta):
-    cur, _top = kbd_levels()
-    if cur is None:
-        osd(None, None, "键盘背光不可用")
-        return
-    level = kbd_set(cur + delta)
-    if level:
-        kbd_save_last(level)
-    kbd_osd(level)
-
-
-def kbd_toggle():
-    cur, top = kbd_levels()
-    if cur is None:
-        osd(None, None, "键盘背光不可用")
-        return
-    if cur > 0:
-        kbd_save_last(cur)
-        level = kbd_set(0)
-    else:
-        level = kbd_set(kbd_last() or top // 2)
-    kbd_osd(level)
-
-
 # ---------- display backlight ----------
-# The Touch Bar keys step the panel backlight through the T1 (STEP_DISPLAY), not
-# through sysfs; acpi_video0 only reports the resulting value.
+# The panel backlight is stepped through the T1 (STEP_DISPLAY), not through
+# sysfs; acpi_video0 only reports the resulting value.
 DISPLAY_BL = Path("/sys/class/backlight/acpi_video0")
 
 
@@ -1207,8 +971,8 @@ def main(argv):
         if "--path" in argv:
             raw = argv[argv.index("--path") + 1].strip(",")
             tree = tuple(int(part) for part in raw.split(",") if part.strip())
-        elif "--mode" in argv and argv[argv.index("--mode") + 1] == "ai":
-            tree = ai_path(load_config())
+        elif "--at" in argv:
+            tree = find_level(load_config(), argv[argv.index("--at") + 1])
         dump_frame(path, text, tree)
         return 0
 

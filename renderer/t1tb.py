@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
-"""t1tb — talk to the wwx.touchbar-ai renderer, and switch its voice on/off.
+"""t1tb — everything a touch-bar key can do, from a shell. Keys run `cmd: t1tb …`.
 
-  t1tb ai [-t TEXT]     enter AI mode (optionally set the status text)
-  t1tb text -t TEXT     set the status text and show AI mode
-  t1tb goto LABEL       jump to any tree node by label (t1tb goto 键盘)
-  t1tb root             back to the root row (alias: normal)
-  t1tb normal           back to the normal bar
-  t1tb toggle           flip modes
-  t1tb status           print mode + text
-  t1tb quit             stop the renderer (the omarchy service restarts it)
-  t1tb voice on|off|    turn the spoken prompt announcement on or off (no arg
-       [toggle]|status  prints the current state)
+Renderer (needs the bar, talks over ~/.local/state/t1-touchbar/ai.sock):
+  t1tb goto LABEL [-t TEXT]  jump to any tree node by label (t1tb goto AI)
+  t1tb text -t TEXT          set the agent text, stay on the current level
+  t1tb root                  back to the root row (alias: normal)
+  t1tb status | quit
+  t1tb insert TEXT [-n]      focus the agent window and paste TEXT (+ Return)
+  t1tb display up|down       one Touch Bar panel-backlight step (T1 STEP_DISPLAY)
+
+Local (no socket needed):
+  t1tb volume up|down|mute [N] [--quiet]   default step 6 %, OSD unless --quiet
+  t1tb volume status
+  t1tb kbd up|down|toggle|off [--quiet]    keyboard backlight, OSD unless --quiet
+  t1tb kbd status
+  t1tb voice on|off|[toggle]|status        spoken prompt announcements
 """
 
 import json
 import os
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
 SOCK = os.path.expanduser("~/.local/state/t1-touchbar/ai.sock")
+STATE = Path.home() / ".local/state/t1-touchbar"
 TTS_CONFIG = Path.home() / ".local/share/t1-touchbar/tts/tts.json"
+KBD_LED = Path("/sys/class/leds/spi::kbd_backlight/brightness")
+KBD_MAX = Path("/sys/class/leds/spi::kbd_backlight/max_brightness")
+KBD_STATE = STATE / "kbd-backlight.json"
+KBD_STEP = 51  # 20 % of 255
 TRUTHY = ("1", "true", "yes", "on")
 
 
@@ -38,6 +48,151 @@ def send(req):
     client.close()
     return json.loads(buf.decode("utf-8") or "{}")
 
+
+def osd(icon=None, percent=None, message=None):
+    cmd = ["omarchy-osd", "-d", "1200"]
+    if icon:
+        cmd += ["-i", icon]
+    if percent is None:
+        cmd += ["-m", message or "已调整"]
+    else:
+        cmd += ["-p", str(percent)]
+    subprocess.run(cmd, capture_output=True)
+
+
+def run(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+# ---------- volume ----------
+
+def volume_level():
+    try:
+        out = run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"]).stdout
+        level = float(out.split()[1])
+        return level, "MUTED" in out
+    except (IndexError, ValueError):
+        return None, False
+
+
+def volume(argv):
+    quiet = "--quiet" in argv
+    args = [a for a in argv if not a.startswith("--")]
+    action = args[0] if args else ""
+    step = 6
+    if action in ("up", "down") and len(args) > 1:
+        try:
+            step = abs(int(args[1]))
+        except ValueError:
+            step = 6
+    if action == "status":
+        level, muted = volume_level()
+        print(json.dumps({"level": level, "muted": muted}))
+        return 0
+    if action in ("up", "down"):
+        delta = f"{step}%+" if action == "up" else f"{step}%-"
+        run(["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", delta])
+        level, muted = volume_level()
+        if not quiet:
+            pct = int(round((level or 0) * 100))
+            osd("audio-volume-muted" if muted else "audio-volume-high", pct)
+        return 0
+    if action == "mute":
+        run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+        if not quiet:
+            level, muted = volume_level()
+            if muted:
+                osd("audio-volume-muted", None)
+            else:
+                osd("audio-volume-high", int(round((level or 0) * 100)))
+        return 0
+    print(__doc__.strip(), file=sys.stderr)
+    return 1
+
+
+# ---------- keyboard backlight ----------
+
+def kbd_levels():
+    try:
+        cur = int(KBD_LED.read_text().strip())
+        top = int(KBD_MAX.read_text().strip())
+    except (OSError, ValueError):
+        return None, None
+    return cur, max(top, 1)
+
+
+def kbd_set(level):
+    try:
+        KBD_LED.write_text(f"{level}\n")
+        return level
+    except PermissionError:
+        res = subprocess.run(["sudo", "-n", "tee", str(KBD_LED)],
+                             input=f"{level}\n", capture_output=True, text=True)
+        if res.returncode != 0:
+            return None
+        return level
+    except OSError:
+        return None
+
+
+def kbd_last():
+    try:
+        return int(json.loads(KBD_STATE.read_text()).get("last") or 0)
+    except (OSError, ValueError):
+        return 0
+
+
+def kbd_save_last(level):
+    try:
+        KBD_STATE.parent.mkdir(parents=True, exist_ok=True)
+        KBD_STATE.write_text(json.dumps({"last": int(level)}))
+    except OSError:
+        pass
+
+
+def kbd_osd(level, quiet):
+    if quiet:
+        return
+    if level is None:
+        osd(None, None, "键盘背光不可用")
+        return
+    _cur, top = kbd_levels()
+    if level == 0:
+        osd("input-keyboard", None, "键盘背光 关")
+    else:
+        osd("input-keyboard", int(round(level * 100 / (top or 255))))
+
+
+def kbd(argv):
+    quiet = "--quiet" in argv
+    action = next((a for a in argv if not a.startswith("--")), "")
+    cur, top = kbd_levels()
+    if action == "status":
+        print(json.dumps({"level": cur, "max": top}))
+        return 0
+    if cur is None:
+        kbd_osd(None, quiet)
+        return 1
+    if action == "up":
+        level = kbd_set(min(top, cur + KBD_STEP))
+    elif action == "down":
+        level = kbd_set(max(0, cur - KBD_STEP))
+    elif action == "off":
+        level = kbd_set(0)
+    elif action == "toggle":
+        if cur > 0:
+            kbd_save_last(cur)
+            level = kbd_set(0)
+        else:
+            level = kbd_set(kbd_last() or top // 2)
+    else:
+        print(__doc__.strip(), file=sys.stderr)
+        return 1
+    kbd_osd(level, quiet)
+    return 0
+
+
+# ---------- voice ----------
 
 def read_tts():
     try:
@@ -81,10 +236,12 @@ def voice(argv):
         cfg["speak"] = not current
     else:
         print("usage: t1tb voice on|off|toggle|status", file=sys.stderr)
-        return 2
+        return 1
     write_tts(cfg)
-    now, source = voice_state()
-    print(json.dumps({"speak": now, "source": source}, ensure_ascii=False))
+    now, _ = voice_state()
+    osd("audio-volume-high" if now else "audio-volume-muted", None,
+        "语音播报 开" if now else "语音播报 关")
+    print(json.dumps({"speak": now}, ensure_ascii=False))
     return 0
 
 
@@ -97,27 +254,35 @@ def main(argv):
     if not argv:
         usage(1)
     cmd = argv[0]
-    if cmd == "voice":
-        return voice(argv[1:])
+    if cmd in ("volume", "kbd", "voice"):
+        return {"volume": volume, "kbd": kbd, "voice": voice}[cmd](argv[1:])
     text = None
     if "-t" in argv:
         text = argv[argv.index("-t") + 1]
     try:
-        if cmd == "ai":
-            req = {"cmd": "ai"}
-            if text is not None:
-                req["text"] = text
-        elif cmd == "text":
+        if cmd == "text":
             if text is None:
                 usage(1)
             req = {"cmd": "text", "text": text}
-        elif cmd in ("normal", "toggle", "status", "quit", "root"):
+        elif cmd in ("normal", "status", "quit", "root"):
             req = {"cmd": cmd}
         elif cmd == "goto":
-            # 跳到任意节点：t1tb goto 键盘
-            if len(argv) < 2:
+            label = next((a for a in argv[1:] if not a.startswith("-") and a != text), "")
+            if not label:
                 usage(1)
-            req = {"cmd": "goto", "label": argv[1]}
+            req = {"cmd": "goto", "label": label}
+            if text is not None:
+                req["text"] = text
+        elif cmd == "insert":
+            rest = [a for a in argv[1:] if a != "-n"]
+            if not rest:
+                usage(1)
+            req = {"cmd": "insert", "text": " ".join(rest), "submit": "-n" not in argv}
+        elif cmd == "display":
+            action = argv[1] if len(argv) > 1 else ""
+            if action not in ("up", "down"):
+                usage(1)
+            req = {"cmd": "display", "up": action == "up"}
         elif cmd in ("-h", "--help", "help"):
             usage()
         else:
