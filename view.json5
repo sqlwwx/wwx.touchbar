@@ -32,7 +32,7 @@
       windowMatch: ["omarchy.agent", "hermes"],
       children: [
         { label: "生", action: "cmd: omarchy-launch-terminal hermes chat" },
-        { label: "死", action: "cmd: t1tb insert 复盘这次会话：评估有没有值得沉淀为技能、或整理进 wiki 的内容，有就整理完，然后结束这次会话。" },
+        { label: "死", action: "cmd: t1tb insert 收尾三件事：①有值得沉淀的做法就整理成技能；②有值得留档的结论就写进 ~/wiki；③完成后运行 t1tb close 关掉本窗口。只回一行结果（做了/没做），不要复述过程、不要列清单、不要总结对话。" },
         { label: "善", action: "cmd: t1tb insert 善", gap: 22 },
         { label: "恶", action: "cmd: t1tb insert no" },
         { label: "研", action: "cmd: t1tb insert 先研究清楚再动手", gap: 22 },

@@ -26,6 +26,7 @@ line request / one JSON line reply:
   {"cmd":"normal"}                        back to the root row
   {"cmd":"status"} {"cmd":"quit"}
   {"cmd":"insert","text":"…","submit":true}   focus the agent window + paste
+  {"cmd":"close"}                         close the agent window
   {"cmd":"display","up":true|false}       one panel-backlight step (T1)
 Nothing in the config is special: there is no "AI mode", only levels of the one
 tree. Use the `t1tb` CLI instead of talking to it directly.
@@ -114,7 +115,7 @@ DEFAULT_CONFIG = {
          "windowMatch": ["omarchy.agent", "hermes"],
          "children": [
             {"label": "生", "action": "cmd: omarchy-launch-terminal hermes chat"},
-            {"label": "死", "action": "cmd: t1tb insert 复盘这次会话：评估有没有值得沉淀为技能、或整理进 wiki 的内容，有就整理完，然后结束这次会话。"},
+            {"label": "死", "action": "cmd: t1tb insert 收尾三件事：①有值得沉淀的做法就整理成技能；②有值得留档的结论就写进 ~/wiki；③完成后运行 t1tb close 关掉本窗口。只回一行结果（做了/没做），不要复述过程、不要列清单、不要总结对话。"},
             {"label": "善", "action": "cmd: t1tb insert 善", "gap": 22},
             {"label": "恶", "action": "cmd: t1tb insert no"},
             {"label": "声", "action": "cmd: t1tb voice toggle", "gap": 22},
@@ -531,6 +532,9 @@ class TouchBar:
             threading.Thread(target=self.inject,
                              args=(text, bool(req.get("submit", True))), daemon=True).start()
             return {"ok": True, "insert": text}
+        if cmd == "close":
+            threading.Thread(target=self.close_agent, daemon=True).start()
+            return {"ok": True, "closing": True}
         if cmd == "display":
             up = bool(req.get("up", True))
             threading.Thread(target=self.step_display, args=(up,), daemon=True).start()
@@ -874,6 +878,17 @@ class TouchBar:
         run_cmd(["hyprctl", "dispatch",
                  f'hl.dsp.focus({{window="address:{client["address"]}"}})'])
         time.sleep(0.18)
+        return True
+
+    def close_agent(self):
+        """Close the agent window (same match list as focus_agent)."""
+        client = self.agent_window()
+        if not client:
+            osd(None, None, message="没找到 AI 窗口")
+            return False
+        run_cmd(["hyprctl", "dispatch",
+                 f'hl.dsp.window.close({{window="address:{client["address"]}"}})'])
+        osd(None, None, message="会话已结束")
         return True
 
     def inject(self, text, submit=True):

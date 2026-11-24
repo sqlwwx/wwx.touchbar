@@ -96,6 +96,12 @@ key is the level key `‹层名`, so the same slot both enters and leaves.
 | level key | pop back up one level |
 | any leaf | run its `action: "cmd: <shell>"`; a leaf with no action just focuses the agent |
 
+`死` is a leaf too — `cmd: t1tb insert 收尾三件事：… 完成后运行 t1tb close 关掉本窗口`
+— so the *agent* closes the window when it is actually done. There is no timer:
+killing on a schedule would cut a wrap-up short. `t1tb close` resolves the window
+through the same `windowMatch` list as `t1tb insert`, then sends a normal close
+(`hl.dsp.window.close`).
+
 There are no special keys: `生` (`cmd: omarchy-launch-terminal hermes chat`) and
 `死` (`cmd: t1tb insert 复盘…`) are ordinary leaves whose command happens to start
 or wrap up a session. Rename, move or drop them like any other key.
@@ -178,8 +184,9 @@ Every tap is appended to `~/.local/state/t1-touchbar/ai-events.jsonl`.
 Logs: `ai-renderer.log`, `ai-stdout.log`.
 
 Besides those, the socket takes `{"cmd":"insert","text":"…","submit":true}` (focus
-the agent window + paste) and `{"cmd":"display","up":true|false}` (one
-panel-backlight step through the T1, same path as the `亮 +/−` keys).
+the agent window + paste), `{"cmd":"close"}` (close that window) and
+`{"cmd":"display","up":true|false}` (one panel-backlight step through the T1,
+same path as the `亮 +/−` keys).
 
 ## Screen brightness
 

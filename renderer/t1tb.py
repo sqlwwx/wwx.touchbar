@@ -7,6 +7,7 @@ Renderer (needs the bar, talks over ~/.local/state/t1-touchbar/ai.sock):
   t1tb root                  back to the root row (alias: normal)
   t1tb status | quit
   t1tb insert TEXT [-n]      focus the agent window and paste TEXT (+ Return)
+  t1tb close                 close the agent window (same windowMatch as insert)
   t1tb display up|down       one Touch Bar panel-backlight step (T1 STEP_DISPLAY)
 
 Local (no socket needed):
@@ -264,7 +265,7 @@ def main(argv):
             if text is None:
                 usage(1)
             req = {"cmd": "text", "text": text}
-        elif cmd in ("normal", "status", "quit", "root"):
+        elif cmd in ("normal", "status", "quit", "root", "close"):
             req = {"cmd": cmd}
         elif cmd == "goto":
             label = next((a for a in argv[1:] if not a.startswith("-") and a != text), "")
