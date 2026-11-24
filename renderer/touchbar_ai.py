@@ -11,7 +11,8 @@ while descended is the level key — it carries the name of the level you are in
 and pops back up. At the root there is no level key: every entry, the `AI`
 branch included, is drawn purely from its own fields (`gap` for the left
 spacing, `text` for the agent text area, `children` for the subtree). No label
-is special-cased anywhere.
+is special-cased anywhere. `windowMatch` on a node decides which window
+`t1tb insert` focuses (inherited down the path, fallback DEFAULT_AGENT_MATCH).
 
 Taps:
   every leaf key runs `action: "cmd: <shell>"` — one form, no builtins. The
@@ -90,14 +91,13 @@ GROUP_GAP = 22
 RADIUS = 8
 ESC_W = 166
 
-# Window identification for focus_agent(): matched against class/title, and
-# against the process cmdline tree of terminal windows.
+# Fallback window match for focus_agent() when no node declares `windowMatch`.
+# A node's own list wins, so any agent CLI can be targeted from the config.
 DEFAULT_AGENT_MATCH = ["omarchy.agent", "hermes"]
 TERMINAL_CLASSES = ("foot", "alacritty", "kitty", "ghostty", "org.wezfurlong.wezterm",
                     "com.mitchellh.ghostty", "wezterm", "xterm", "alacritty-")
 
 DEFAULT_CONFIG = {
-    "agentWindowMatch": list(DEFAULT_AGENT_MATCH),
     "buttonWidth": 96,
     "gap": 8,          # default spacing between keys; an entry's own `gap` wins
     "levelGap": 44,    # gap left of the level key
@@ -111,6 +111,7 @@ DEFAULT_CONFIG = {
         {"label": "键 −", "action": "cmd: t1tb kbd down"},
         {"label": "键灯", "action": "cmd: t1tb kbd toggle"},
         {"label": "AI", "gap": 44, "text": "AI 交互模式 · 右侧 ‹AI 回根层",
+         "windowMatch": ["omarchy.agent", "hermes"],
          "children": [
             {"label": "生", "action": "cmd: omarchy-launch-terminal hermes chat"},
             {"label": "死", "action": "cmd: t1tb insert 复盘这次会话：评估有没有值得沉淀为技能、或整理进 wiki 的内容，有就整理完，然后结束这次会话。"},
@@ -800,6 +801,38 @@ class TouchBar:
             frontier = nxt
         return out
 
+    def window_match(self):
+        """Window keywords for focus_agent(), from the tree.
+
+        The innermost node on the current path that declares `windowMatch` wins
+        (so the agent branch owns its own match list); at the root the first
+        declaration anywhere in the tree is used. With no declaration at all it
+        falls back to DEFAULT_AGENT_MATCH. Nothing is hard-coded to one agent.
+        """
+        entries = self.config.get("children") or []
+        found = None
+        for index in self.path:
+            if not isinstance(index, int) or not 0 <= index < len(entries):
+                break
+            node = entries[index]
+            if isinstance(node.get("windowMatch"), list) and node["windowMatch"]:
+                found = node["windowMatch"]
+            entries = node.get("children") or []
+        if found:
+            return found
+
+        def walk(items):
+            for item in items:
+                match = item.get("windowMatch")
+                if isinstance(match, list) and match:
+                    return match
+                deeper = walk(item.get("children") or [])
+                if deeper:
+                    return deeper
+            return None
+
+        return walk(self.config.get("children") or []) or DEFAULT_AGENT_MATCH
+
     def agent_window(self):
         got = run_cmd(["hyprctl", "clients", "-j"])
         if not got or not got.stdout:
@@ -808,8 +841,7 @@ class TouchBar:
             clients = json.loads(got.stdout)
         except Exception:
             return None
-        words = [str(w).lower() for w in (self.config.get("agentWindowMatch")
-                                         or DEFAULT_AGENT_MATCH)]
+        words = [str(w).lower() for w in self.window_match()]
         hits = []
         for client in clients:
             haystack = " ".join(str(client.get(k, "")) for k in ("class", "initialClass", "title")).lower()

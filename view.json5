@@ -2,7 +2,8 @@
 // 顶层对象的 children 就是根层那排键；任何节点都能再有 children：点它进一层，
 // 最右侧出现层级键 ‹当前层名，点它回上一级。
 //   gap    = 该键左侧的间距（不写就用顶层的 gap）—— 想分组就在新块第一个键上写
-//   text   = 该层出现文字区，子层继承（agent 的 status 文字会覆盖它）
+//   text        = 该层出现文字区，子层继承（agent 的 status 文字会覆盖它）
+//   windowMatch = 聚焦/注入时认哪个窗口（class/title/进程名关键词，子层继承）
 // 叶子只有一种行为：action: "cmd: <shell>"。要干什么就写什么命令。
 {
   buttonWidth: 85,
@@ -28,6 +29,7 @@
       label: "AI",
       gap: 44,
       text: "AI 交互模式 · 右侧 ‹AI 回根层",
+      windowMatch: ["omarchy.agent", "hermes"],
       children: [
         { label: "生", action: "cmd: omarchy-launch-terminal hermes chat" },
         { label: "死", action: "cmd: t1tb insert 复盘这次会话：评估有没有值得沉淀为技能、或整理进 wiki 的内容，有就整理完，然后结束这次会话。" },
@@ -41,6 +43,4 @@
       ],
     },
   ],
-
-  agentWindowMatch: ["omarchy.agent", "hermes"],
 }

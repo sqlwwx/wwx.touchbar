@@ -122,13 +122,13 @@ is still an error; it forgives `{a:1, b:2,}`.) The older `buttons.json5` and
     { label: "音 −", action: "cmd: t1tb volume down" },
     { label: "静", action: "cmd: t1tb volume mute", gap: 22 },
     { label: "AI", gap: 44, text: "AI 交互模式 · 右侧 ‹AI 回根层",
+      windowMatch: ["omarchy.agent", "hermes"],
       children: [
         { label: "生", action: "cmd: omarchy-launch-terminal hermes chat" },
         { label: "死", action: "cmd: t1tb insert 复盘这次会话…" },
         { label: "善", action: "cmd: t1tb insert 善", gap: 22 } ] },
   ],
 
-  agentWindowMatch: ["omarchy.agent", "hermes"],
 }
 ```
 
@@ -150,9 +150,14 @@ is still an error; it forgives `{a:1, b:2,}`.) The older `buttons.json5` and
   own session with output discarded. Anything you can type in a terminal works
   (`cmd: wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+`, `cmd: wtype -k F5`, …). The
   renderer has no builtins; the shipped config just calls `t1tb`.
-- The top level holds only layout: `buttonWidth`, `gap`, `levelGap`, `children`,
-  plus `agentWindowMatch` for window focus. Nothing in the file names a mode, a
-  session or a prompt.
+- The top level holds only layout: `buttonWidth`, `gap`, `levelGap`, `children`.
+  Nothing in the file names a mode, a session, a prompt or a window.
+- `windowMatch` — optional list of keywords on a node (class / title / process
+  cmdline of a terminal's children) telling `t1tb insert` and the text-area tap
+  which window to focus. The innermost node on the current path wins, so the
+  agent branch owns its own list; with no declaration anywhere the renderer falls
+  back to `omarchy.agent` / `hermes`. Point it at whatever CLI you actually run
+  (`windowMatch: ["codex", "opencode"]`).
 - Buttons render left-to-right in array order: the first entry sits leftmost,
   the last one next to the level key.
 - A file that will not parse falls back to the built-in layout **and** shows an
