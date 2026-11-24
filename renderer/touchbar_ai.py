@@ -29,8 +29,9 @@ any node by label, `{"cmd":"root"}` is the alias of `normal`. The reported mode
 is derived from the path, never stored separately.
 Use the `t1tb` CLI instead of talking to it directly.
 
-Config: buttons.json5 (JSON5: comments, trailing commas, bare keys) in the
-plugin directory, reloaded on save. A legacy buttons.json is still read, and
+Config: view.json5 (JSON5: comments, trailing commas, bare keys) in the
+plugin directory, reloaded on save. Older buttons.json5 / buttons.json are
+still read, and
 the old normal[]/ai[] shape is folded into one tree on load.
 """
 
@@ -57,9 +58,9 @@ except ImportError:  # fall back to strict JSON, and say so in the log
 
 HOME = Path.home()
 PLUGIN = HOME / ".config/omarchy/plugins/wwx.touchbar-ai"
-# JSON5 (comments, trailing commas, bare keys). `buttons.json5` wins; the old
-# `buttons.json` keeps working as a fallback.
-CONFIG_CANDIDATES = (PLUGIN / "buttons.json5", PLUGIN / "buttons.json")
+# JSON5 (comments, trailing commas, bare keys). `view.json5` is the name; the
+# older `buttons.json5` / `buttons.json` still load as fallbacks.
+CONFIG_CANDIDATES = (PLUGIN / "view.json5", PLUGIN / "buttons.json5", PLUGIN / "buttons.json")
 CONFIG_PATH = next((p for p in CONFIG_CANDIDATES if p.exists()), CONFIG_CANDIDATES[0])
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(HOME / ".local/state"))) / "t1-touchbar"
 EVENTS = STATE / "ai-events.jsonl"

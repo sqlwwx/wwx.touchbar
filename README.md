@@ -10,7 +10,7 @@ stops it when the plugin is unloaded.
 ```
 manifest.json          kind: service
 Service.qml            supervisor (Quickshell Process, 3 s restart on exit)
-buttons.json5          the whole button tree (JSON5)
+view.json5             the whole button tree (JSON5)
 renderer/touchbar_ai.py  the renderer (Hello / buffers / draw / tap)
 renderer/t1tb.py       control CLI (symlinked to ~/.local/bin/t1tb)
 renderer/launch.sh     stop stock renderer, exec renderer
@@ -104,12 +104,12 @@ CJK text cannot be typed with `wtype`, so non-ASCII inserts go through
 `wl-copy` + `Ctrl+Shift+V` (the clipboard is restored afterwards). ASCII inserts
 are typed directly.
 
-## buttons.json5
+## view.json5
 
 JSON5, reloaded on save — no restart. Comments, trailing commas and bare keys
 all work. (JSON5 does **not** forgive a *missing separator* comma — `{a:1 b:2}`
-is still an error; it forgives `{a:1, b:2,}`.) A legacy `buttons.json` is still
-read if no `.json5` exists.
+is still an error; it forgives `{a:1, b:2,}`.) The older `buttons.json5` and
+`buttons.json` are still read if no `view.json5` exists.
 
 ```json5
 {
@@ -172,7 +172,7 @@ read if no `.json5` exists.
 - Buttons render left-to-right in array order: the first entry sits leftmost,
   the last one next to the level key.
 - A file that will not parse falls back to the built-in layout **and** shows an
-  `omarchy-osd` notice (`buttons.json5 有误：…`), so a typo cannot silently pass
+  `omarchy-osd` notice (`配置有误(view.json5)：…`), so a typo cannot silently pass
   as "the bar looks fine".
 
 ## Agent side

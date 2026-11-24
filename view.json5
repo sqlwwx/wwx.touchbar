@@ -5,8 +5,8 @@
 //   text   = 该层出现文字区，子层继承（agent 的 status 文字会覆盖它）
 //   aiNode = t1tb ai 定位的节点名（只用于定位，不参与布局）
 {
-  buttonWidth: 96,
-  gap: 8,
+  buttonWidth: 85,
+  gap: 4,
   levelGap: 44,
   aiNode: "AI",
 
