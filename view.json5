@@ -42,5 +42,30 @@
         { label: "声", action: "cmd: t1tb voice toggle", gap: 22 },
       ],
     },
+    {
+      // 物理 Fn 键：点一下进入这层，再点一下回到进来之前那一层。
+      // hidden = 不在根层显示入口按钮，只靠 Fn 键进（也可 t1tb goto Fn）。
+      label: "Fn",
+      key: "fn",
+      hidden: true,
+      // F1–F12 是短标签，把这一层的键做宽、间距放宽，好按。
+      buttonWidth: 120,
+      gap: 16,
+      text: "再按 Fn 返回",
+      children: [
+        { label: "F1", action: "cmd: t1tb key f1" },
+        { label: "F2", action: "cmd: t1tb key f2" },
+        { label: "F3", action: "cmd: t1tb key f3" },
+        { label: "F4", action: "cmd: t1tb key f4" },
+        { label: "F5", action: "cmd: t1tb key f5" },
+        { label: "F6", action: "cmd: t1tb key f6" },
+        { label: "F7", action: "cmd: t1tb key f7" },
+        { label: "F8", action: "cmd: t1tb key f8", gap: 22 },
+        { label: "F9", action: "cmd: t1tb key f9" },
+        { label: "F10", action: "cmd: t1tb key f10" },
+        { label: "F11", action: "cmd: t1tb key f11" },
+        { label: "F12", action: "cmd: t1tb key f12" },
+      ],
+    },
   ],
 }

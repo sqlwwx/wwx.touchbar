@@ -10,6 +10,7 @@ Renderer (needs the bar, talks over ~/.local/state/t1-touchbar/ai.sock):
   t1tb close                 close the agent window (same windowMatch as insert)
   t1tb finish                wrap up: 1st tap pastes the wrap-up prompt and arms,
                              2nd tap within 10 min closes the agent window
+  t1tb key NAME              send a real key to the focused window (f1..f12, esc)
   t1tb display up|down       one Touch Bar panel-backlight step (T1 STEP_DISPLAY)
 
 Local (no socket needed):
@@ -328,6 +329,10 @@ def main(argv):
             if not rest:
                 usage(1)
             req = {"cmd": "insert", "text": " ".join(rest), "submit": "-n" not in argv}
+        elif cmd == "key":
+            if len(argv) < 2:
+                usage(1)
+            req = {"cmd": "key", "name": argv[1]}
         elif cmd == "display":
             action = argv[1] if len(argv) > 1 else ""
             if action not in ("up", "down"):

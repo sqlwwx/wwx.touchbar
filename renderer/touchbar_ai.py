@@ -75,6 +75,15 @@ STEP_DISPLAY = 0x0008
 HELLO_ACK, ACK, ERROR, FRAME_RELEASED, INPUT_FRAME = 0x8001, 0x8002, 0x8003, 0x9001, 0x9002
 FEATURES = 0x2F  # INITIAL_SERVICE(0x07) | TOUCH_ID_CANCELLATION(0x20) | DISPLAY_BRIGHTNESS(0x08)
 KEY_ESC = 1
+# Physical keys that can drive the bar. A node opts in with `key: "fn"`; tapping
+# the key on the keyboard toggles into that node's level (tap again to leave).
+# KEY_FN is what the Apple SPI Keyboard reports; the device is opened read-only.
+KEY_CODES = {"fn": 464}          # KEY_FN
+KEY_DEVICES = ("Apple SPI Keyboard",)
+# Linux input keycodes for the keys the bar can synthesize (TapKeys opcode).
+# F1..F12 are 59..68 then 87,88 (F11/F12) — not contiguous, hence the table.
+KEY_TAP = {**{f"f{n}": 58 + n for n in range(1, 11)}, "f11": 87, "f12": 88,
+           "esc": KEY_ESC}
 
 BACKGROUND = (0, 0, 0)
 PLATE = (53, 53, 53)
@@ -120,6 +129,10 @@ DEFAULT_CONFIG = {
             {"label": "恶", "action": "cmd: t1tb insert no"},
             {"label": "声", "action": "cmd: t1tb voice toggle", "gap": 22},
         ]},
+        {"label": "Fn", "key": "fn", "hidden": True, "buttonWidth": 120, "gap": 16,
+         "text": "再按 Fn 返回",
+         "children": [{"label": f"F{n}", "action": f"cmd: t1tb key f{n}"}
+                      for n in range(1, 13)]},
     ],
 }
 
@@ -264,6 +277,25 @@ def find_level(config, label):
     return walk(config.get("children") or [], ()) or ()
 
 
+def find_key_node(config, key):
+    """Path of the first entry declaring `key: "<name>"` (e.g. fn)."""
+    name = str(key or "").lower()
+    if not name:
+        return ()
+
+    def walk(entries, prefix):
+        for index, entry in enumerate(entries):
+            here = prefix + (index,)
+            if str(entry.get("key") or "").lower() == name:
+                return here
+            found = walk(entry.get("children") or [], here)
+            if found is not None:
+                return found
+        return None
+
+    return walk(config.get("children") or [], ()) or ()
+
+
 def level_text(config, path):
     """Hint text of the innermost entry with `text` along the path, else None.
 
@@ -283,6 +315,22 @@ def level_text(config, path):
     return hint
 
 
+def level_row(config, path):
+    """Row geometry inherited down the path: {buttonWidth?, gap?}."""
+    row = {}
+    entries = config.get("children") or []
+    for index in path:
+        if not isinstance(index, int) or not 0 <= index < len(entries):
+            break
+        node = entries[index]
+        for key in ("buttonWidth", "gap"):
+            value = node.get(key)
+            if isinstance(value, int) and value > 0:
+                row[key] = value
+        entries = node.get("children") or []
+    return row
+
+
 def build_layout(w, h, config, path=()):
     """Return (esc_rect, text_rect|None, [(rect, item)]).
 
@@ -294,9 +342,12 @@ def build_layout(w, h, config, path=()):
     pops back up. At the root there is no level key, and every entry — the `AI`
     branch included — is drawn purely from its own fields.
     """
-    button_w = int(config.get("buttonWidth") or BUTTON_W)
+    # A level can override the row geometry with its own buttonWidth/gap, so a
+    # row of short keys (F1..F12) can be wider than the text-heavy root row.
+    row = level_row(config, path)
+    button_w = int(row.get("buttonWidth") or config.get("buttonWidth") or BUTTON_W)
     level_gap = int(config.get("levelGap", LEVEL_GAP))
-    default_gap = int(config.get("gap", GAP))
+    default_gap = int(row.get("gap", config.get("gap", GAP)))
     esc = (4, 0, ESC_W, h)
     entries = level_entries(config, path)
     if entries is None:  # config edited while drilled in
@@ -316,6 +367,9 @@ def build_layout(w, h, config, path=()):
             "gap": gap if isinstance(gap, int) and GAP <= gap <= 80 else default_gap,
             "index": index,
             "branch": branch,
+            # `hidden` keeps an entry out of its parent's row (still reachable
+            # by a physical key, `t1tb goto`, or as a child level).
+            "hidden": bool(entry.get("hidden")),
         })
     if path:
         node = node_at(config, path) or {}
@@ -324,7 +378,7 @@ def build_layout(w, h, config, path=()):
 
     right = w - 4
     items = []
-    for item in reversed(keys):
+    for item in reversed([k for k in keys if not k.get("hidden")]):
         rect = (right - button_w, 0, right, h)
         items.append((rect, item))
         # Gap to the LEFT of this key, i.e. between keys[index-1] and this one.
@@ -429,6 +483,9 @@ class TouchBar:
         self.dirty = True
         self.ctl = None
         self.suspend_offset = self._suspend_offset()
+        # Level we were on before a physical key (Fn) switched us away, so the
+        # same key press can put us back exactly there.
+        self.key_return_path = None
 
         size = width * height * 4
         for i in range(min(2, max_buffers)):
@@ -436,6 +493,7 @@ class TouchBar:
         self.idle = list(self.buffers)
         self._open_control()
         self._install_signals()
+        self._open_key_device()
 
     # ---------- config ----------
     def _config_mtime(self):
@@ -453,7 +511,98 @@ class TouchBar:
                 self.path = ()   # the edited tree dropped the level we were in
                 self._sync_mode()
             log("config reloaded")
+            # A node may have gained/lost `key:`; re-resolve the device so the
+            # shortcut follows the config without a restart.
+            if self.key_fd is not None:
+                os.close(self.key_fd)
+                self.key_fd = None
+            self._open_key_device()
             self.dirty = True
+
+    # ---------- physical keys ----------
+    def _open_key_device(self):
+        """Open the keyboard's evdev node read-only, for nodes declaring `key:`.
+
+        Only devices whose name is in KEY_DEVICES are opened, and only if some
+        node actually declares a key — otherwise the renderer leaves the keyboard
+        completely alone. A missing device is not an error: the bar keeps working
+        and only the physical-key shortcut is unavailable.
+        """
+        self.key_fd = None
+        wanted = self.key_bindings()
+        if not wanted:
+            return
+        for event in sorted(Path("/dev/input").glob("event*")):
+            # The device name lives in sysfs — /dev/input/eventN is a character
+            # device, so "/dev/input/eventN/device/name" does not exist.
+            try:
+                name = Path(f"/sys/class/input/{event.name}/device/name").read_text(
+                    encoding="utf-8").strip()
+            except OSError:
+                continue
+            if name not in KEY_DEVICES:
+                continue
+            try:
+                self.key_fd = os.open(event, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError as exc:
+                log(f"key device {event} ({name}) unavailable: {exc}")
+                continue
+            log(f"key device {event} ({name}) open for {sorted(wanted)}")
+            return
+        log("no key device found; physical-key levels disabled")
+
+    def key_bindings(self):
+        """{keycode: path} for every node declaring `key: "<name>"`."""
+        found = {}
+
+        def walk(entries, prefix):
+            for index, entry in enumerate(entries):
+                here = prefix + (index,)
+                code = KEY_CODES.get(str(entry.get("key") or "").lower())
+                if code is not None:
+                    found[code] = here
+                walk(entry.get("children") or [], here)
+
+        walk(self.config.get("children") or [], ())
+        return found
+
+    def poll_keys(self):
+        """Read pending key events; a tap of a bound key toggles its level."""
+        if self.key_fd is None:
+            return
+        while True:
+            try:
+                data = os.read(self.key_fd, 24 * 64)
+            except BlockingIOError:
+                return
+            except OSError as exc:
+                log(f"key device read failed: {exc}")
+                self.key_fd = None
+                return
+            if not data:
+                self.key_fd = None
+                return
+            for off in range(0, len(data) - 23, 24):
+                _sec, _usec, etype, code, value = struct.unpack("<qqHHi", data[off:off + 24])
+                # value 1 = press, 2 = autorepeat, 0 = release. Only act on press
+                # so holding the key cannot flicker between levels.
+                if etype != 1 or value != 1:
+                    continue
+                path = self.key_bindings().get(code)
+                if path is None:
+                    continue
+                self.toggle_key_level(code, path)
+
+    def toggle_key_level(self, code, path):
+        if self.path[:len(path)] == path:
+            target = self.key_return_path if self.key_return_path is not None else ()
+            log(f"key {code} off -> {'/'.join(map(str, target)) or 'root'}")
+            self.key_return_path = None
+            self.goto(target)
+        else:
+            self.key_return_path = tuple(self.path)
+            log(f"key {code} on -> {'/'.join(map(str, path))}")
+            self.goto(path)
 
     # ---------- control socket ----------
     def _open_control(self):
@@ -479,7 +628,7 @@ class TouchBar:
     def handle_control(self):
         conn, _ = self.ctl.accept()
         try:
-            conn.settimeout(2.0)
+            conn.settimeout(1.0)
             buf = b""
             while not buf.endswith(b"\n") and len(buf) < 65536:
                 chunk = conn.recv(4096)
@@ -535,6 +684,14 @@ class TouchBar:
         if cmd == "close":
             threading.Thread(target=self.close_agent, daemon=True).start()
             return {"ok": True, "closing": True}
+        if cmd == "key":
+            # t1tb key f5 → a real F5 to the focused window.
+            name = str(req.get("name") or "").lower()
+            code = KEY_TAP.get(name)
+            if code is None:
+                raise ValueError(f"unknown key {name!r}")
+            self.send_keys([code])
+            return {"ok": True, "key": name}
         if cmd == "display":
             up = bool(req.get("up", True))
             threading.Thread(target=self.step_display, args=(up,), daemon=True).start()
@@ -742,8 +899,22 @@ class TouchBar:
             log(f"action {kind} failed: {exc}")
             record_event({"label": item.get("label", "?"), "action": "error", "error": str(exc)})
 
+    def send_keys(self, codes):
+        """Send real key taps to the focused window through the T1 (TapKeys).
+
+        This is how the Fn layer produces F1–F12: the bar is the keyboard's
+        peer here, so the key event comes from the hardware path, not from
+        wtype (which needs a Wayland input seat and would be refused while the
+        Touch Bar has focus).
+        """
+        codes = [int(c) for c in codes][:4]
+        if not codes:
+            return
+        codes += [0] * (4 - len(codes))
+        self.sock.send(packet(TAP_KEYS, struct.pack("<B3x4H", len(codes), *codes), 300))
+
     def send_esc(self):
-        self.sock.send(packet(TAP_KEYS, struct.pack("<B3x4H", 1, KEY_ESC, 0, 0, 0), 300))
+        self.send_keys([KEY_ESC])
 
     def run_action(self, action):
         """One form only: `cmd:<shell>`. Everything a key does is a command."""
@@ -973,10 +1144,15 @@ class TouchBar:
         self.maybe_render()
         while True:
             watch = [self.sock, self.ctl]
+            if self.key_fd is not None:
+                watch.append(self.key_fd)
             ready, _, _ = select.select(watch, [], [], 0.5)
             for source in ready:
                 if source is self.ctl:
                     self.handle_control()
+                    continue
+                if source is self.key_fd:
+                    self.poll_keys()
                     continue
                 data = self.sock.recv(65536)
                 if not data:
