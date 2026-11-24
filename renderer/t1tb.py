@@ -8,6 +8,8 @@ Renderer (needs the bar, talks over ~/.local/state/t1-touchbar/ai.sock):
   t1tb status | quit
   t1tb insert TEXT [-n]      focus the agent window and paste TEXT (+ Return)
   t1tb close                 close the agent window (same windowMatch as insert)
+  t1tb finish                wrap up: 1st tap pastes the wrap-up prompt and arms,
+                             2nd tap within 10 min closes the agent window
   t1tb display up|down       one Touch Bar panel-backlight step (T1 STEP_DISPLAY)
 
 Local (no socket needed):
@@ -23,6 +25,7 @@ import os
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 SOCK = os.path.expanduser("~/.local/state/t1-touchbar/ai.sock")
@@ -33,6 +36,17 @@ KBD_MAX = Path("/sys/class/leds/spi::kbd_backlight/max_brightness")
 KBD_STATE = STATE / "kbd-backlight.json"
 KBD_STEP = 51  # 20 % of 255
 TRUTHY = ("1", "true", "yes", "on")
+# `t1tb finish` is a two-tap verb: the first tap pastes the wrap-up prompt and
+# arms this flag, the second one closes the window. The flag expires so a stale
+# arm from ten minutes ago cannot close a window you opened since.
+FINISH_STATE = STATE / "finish-armed.json"
+FINISH_TTL = 600
+
+FINISH_PROMPT = (
+    "收尾三件事：①有值得沉淀的做法就整理成技能；②有值得留档的结论就写进 ~/wiki；"
+    "③做完就停，不要继续展开。只回一行结果（做了/没做），不要复述过程、不要列清单、"
+    "不要总结对话。"
+)
 
 
 def send(req):
@@ -246,6 +260,39 @@ def voice(argv):
     return 0
 
 
+def finish_armed():
+    try:
+        data = json.loads(FINISH_STATE.read_text())
+        return (time.time() - float(data.get("at") or 0)) < FINISH_TTL
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def finish_arm():
+    STATE.mkdir(parents=True, exist_ok=True)
+    FINISH_STATE.write_text(json.dumps({"at": time.time()}))
+
+
+def finish_disarm():
+    try:
+        FINISH_STATE.unlink()
+    except OSError:
+        pass
+
+
+def finish():
+    """Two taps: wrap up, then close. Never closes on the first tap."""
+    if finish_armed():
+        finish_disarm()
+        reply = send({"cmd": "close"})
+        print(json.dumps({"finish": "closed", **reply}, ensure_ascii=False))
+        return 0 if reply.get("ok") else 1
+    finish_arm()
+    reply = send({"cmd": "insert", "text": FINISH_PROMPT, "submit": True})
+    print(json.dumps({"finish": "wrapping-up", **reply}, ensure_ascii=False))
+    return 0 if reply.get("ok") else 1
+
+
 def usage(code=0):
     print(__doc__.strip())
     raise SystemExit(code)
@@ -257,6 +304,8 @@ def main(argv):
     cmd = argv[0]
     if cmd in ("volume", "kbd", "voice"):
         return {"volume": volume, "kbd": kbd, "voice": voice}[cmd](argv[1:])
+    if cmd == "finish":
+        return finish()
     text = None
     if "-t" in argv:
         text = argv[argv.index("-t") + 1]
