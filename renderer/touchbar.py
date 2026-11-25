@@ -1096,7 +1096,7 @@ class TouchBar:
         # 所以老式的 "focuswindow address:0x..." 写法是解析错误。
         run_cmd(["hyprctl", "dispatch",
                  f'hl.dsp.focus({{window="address:{client["address"]}"}})'])
-        time.sleep(0.18)
+        time.sleep(0.12)
         return True
 
     def window_alive(self, address):
@@ -1141,7 +1141,7 @@ class TouchBar:
         if not self.focus_agent(address):
             return
         if text.isascii() and "\n" not in text:
-            run_cmd(["wtype", "-s", "60", text])
+            run_cmd(["wtype", "-s", "15", text])
         else:
             previous = None
             got = run_cmd(["wl-paste", "--no-newline"], timeout=0.6)
@@ -1149,11 +1149,11 @@ class TouchBar:
                 previous = got.stdout
             run_cmd(["wl-copy", text])
             run_cmd(["wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"])
-            time.sleep(0.2)
+            time.sleep(0.1)
             if previous is not None:
                 run_cmd(["wl-copy", previous])
         if submit:
-            time.sleep(0.12)
+            time.sleep(0.05)
             run_cmd(["wtype", "-k", "Return"])
 
     # ---------- 循环 ----------
