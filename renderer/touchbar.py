@@ -917,8 +917,11 @@ class TouchBar:
         codes = [int(c) for c in codes][:4]
         if not codes:
             return
-        codes += [0] * (4 - len(codes))
-        self.sock.send(packet(TAP_KEYS, struct.pack("<B3x4H", len(codes), *codes), 300))
+        count = len(codes)  # the real key count; unused slots are zero, and the
+        # service rejects a count that would make those zeros look like repeats
+        # (TapKeys v1: "unused slots are zero and duplicates are invalid").
+        codes += [0] * (4 - count)
+        self.sock.send(packet(TAP_KEYS, struct.pack("<B3x4H", count, *codes), 300))
 
     def send_esc(self):
         self.send_keys([KEY_ESC])
