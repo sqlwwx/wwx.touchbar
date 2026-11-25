@@ -104,23 +104,31 @@ key is the level key `‹层名`, so the same slot both enters and leaves.
 | key | does |
 | --- | --- |
 | esc | real `KEY_ESC` to the focused window |
-| text area | focus the agent window, so you can type there |
+| text area | focus the target window, so you can type there |
 | branch (`children`) | descend a level; the rightmost key becomes `‹level name` |
 | level key | pop back up one level |
-| any leaf | run its `action: "cmd: <shell>"`; a leaf with no action just focuses the agent |
+| any leaf | run its `action: "cmd: <shell>"`; a leaf with no action just focuses the target |
+
+**Target window.** Interactive commands act on the currently focused window by
+default. When an agent blocks on a human, the Hermes hook reverse-maps the
+triggering agent's process chain (`getppid()` + `/proc` PPid → the ancestor owning
+a Hyprland window) and passes that window's address with `t1tb goto AI -w <addr>`;
+the renderer locks it as the target for that interaction and clears it on
+`t1tb normal`. All interactive commands accept `-w <address>` to override;
+`t1tb status` reports the currently locked window. No agent class/title guessing.
 
 `死` is a leaf too — `cmd: t1tb insert 收尾三件事：… 完成后运行 t1tb close 关掉本窗口`
 — so the *agent* closes the window when it is actually done. There is no timer:
-killing on a schedule would cut a wrap-up short. `t1tb close` resolves the window
-through the same `windowMatch` list as `t1tb insert`, then asks the window to
-close (`hl.dsp.window.close`) and, if it is still there ~1.5 s later, kills it.
-That split matters: terminals honour the close request, Electron apps (the Hermes
-desktop window) answer it with "ok" and stay open — `t1tb close` would silently do
-nothing without the escalation.
+killing on a schedule would cut a wrap-up short. `t1tb close` asks the target
+window to close (`hl.dsp.window.close`) and, if it is still there ~1.5 s later,
+kills it. That split matters: terminals honour the close request, Electron apps
+(the Hermes desktop window) answer it with "ok" and stay open — `t1tb close`
+would silently do nothing without the escalation.
 
-There are no special keys: `生` (`cmd: omarchy-launch-terminal hermes chat`) and
-`死` (`cmd: t1tb insert 复盘…`) are ordinary leaves whose command happens to start
-or wrap up a session. Rename, move or drop them like any other key.
+There are no special keys: `生` (`cmd: t1tb open omarchy-launch-terminal hermes chat`)
+and `死` (`cmd: t1tb insert 复盘…`) are ordinary leaves whose command happens to
+start or wrap up a session. `t1tb open` just runs a command in a new session;
+rename, move or drop these keys like any other.
 
 CJK text cannot be typed with `wtype`, so non-ASCII inserts go through
 `wl-copy` + `Ctrl+Shift+V` (the clipboard is restored afterwards). ASCII inserts
@@ -146,9 +154,8 @@ and the renderer keeps the built-in tree, so a typo cannot silently pass.
     { label: "音 −", action: "cmd: t1tb volume down" },
     { label: "静", action: "cmd: t1tb volume mute", gap: 22 },
     { label: "AI", gap: 44, text: "AI 交互模式 · 右侧 ‹AI 回根层",
-      windowMatch: ["omarchy.agent", "hermes"],
       children: [
-        { label: "生", action: "cmd: omarchy-launch-terminal hermes chat" },
+        { label: "生", action: "cmd: t1tb open omarchy-launch-terminal hermes chat" },
         { label: "死", action: "cmd: t1tb insert 复盘这次会话…" },
         { label: "善", action: "cmd: t1tb insert 善", gap: 22 } ] },
   ],
@@ -176,12 +183,9 @@ and the renderer keeps the built-in tree, so a typo cannot silently pass.
   renderer has no builtins; the shipped config just calls `t1tb`.
 - The top level holds only layout: `buttonWidth`, `gap`, `levelGap`, `children`.
   Nothing in the file names a mode, a session, a prompt or a window.
-- `windowMatch` — optional list of keywords on a node (class / title / process
-  cmdline of a terminal's children) telling `t1tb insert` and the text-area tap
-  which window to focus. The innermost node on the current path wins, so the
-  agent branch owns its own list; with no declaration anywhere the renderer falls
-  back to `omarchy.agent` / `hermes`. Point it at whatever CLI you actually run
-  (`windowMatch: ["codex", "opencode"]`).
+- `windowMatch` — accepted but no longer used for targeting. Interaction follows
+  the focused window, or the window an agent trigger locked (see **Target window**
+  above). No class/title keyword list is needed to support a new agent.
 - Buttons render left-to-right in array order: the first entry sits leftmost,
   the last one next to the level key.
 - A file that will not parse falls back to the built-in layout **and** shows an
@@ -192,9 +196,14 @@ and the renderer keeps the built-in tree, so a typo cannot silently pass.
 
 ```sh
 t1tb goto AI -t "等待审批：允许执行 rm -rf build/ 吗？"   # jump to a node + set the text
+t1tb goto AI -w 0xabc123 -t "..."                      # lock the triggering window
 t1tb text -t "正在跑测试"                                # update the text, stay here
-t1tb normal                                          # back to the root row
-t1tb root | status | quit
+t1tb normal                                          # back to root + clear locked window
+t1tb root | status | quit                             # status reports the locked window
+
+t1tb insert TEXT [-n] [-w ADDR]   # paste into target; -n = no Return, -w = override window
+t1tb close [-w ADDR]              # close the target window (escalate to kill)
+t1tb open CMD [ARGS...]           # launch a command in a new session
 ```
 
 Socket: `~/.local/state/t1-touchbar/ai.sock` (one JSON line in, one out).

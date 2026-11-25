@@ -68,6 +68,43 @@ def t1tb(*args):
         log(f"t1tb {args} failed: {exc}")
 
 
+def trigger_window():
+    """反查触发本次交互的 agent 所在的 Hyprland 窗口 address。
+
+    Hermes 的 hook payload 没有窗口字段，但 hook 是 agent 进程直接 fork 的
+    子进程：从 os.getppid() 沿 /proc 的 PPid 链往上走，找到拥有 Hyprland
+    窗口的祖先进程（终端模拟器或 Hermes 桌面窗口），取其 address。
+    拿不到就返回 None，渲染器会退回当前聚焦窗口。
+    """
+    try:
+        clients = json.loads(run(["hyprctl", "clients", "-j"]).stdout or "[]")
+    except Exception:
+        return None
+    owners = {}
+    for client in clients:
+        pid = client.get("pid")
+        if isinstance(pid, int) and pid > 0:
+            owners.setdefault(pid, client)
+    pid = os.getppid()
+    seen = set()
+    for _ in range(12):  # 限制层数，避免异常 /proc 形成环
+        if pid <= 1 or pid in seen:
+            break
+        seen.add(pid)
+        if pid in owners:
+            return str(owners[pid].get("address") or "") or None
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+            pid = int(stat.rsplit(")", 1)[1].split()[1])  # PPid 是第 4 字段
+        except (OSError, ValueError, IndexError):
+            break
+    return None
+
+
+def run(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
 def speak_enabled():
     env = os.environ.get("T1TTS_SPEAK")
     if env is not None:
@@ -170,10 +207,17 @@ def on_request(payload, extra):
         save_pending(pending)
 
     text = f"{label}：{prompt}" if prompt else label
-    t1tb("goto", "AI", "-t", text)
+    window = trigger_window()
+    if window:
+        pending[key]["window"] = window
+        save_pending(pending)
+        t1tb("goto", "AI", "-t", text, "-w", window)
+    else:
+        t1tb("goto", "AI", "-t", text)
     spoke = speak_enabled()
     speak(text)
-    log(f"request kind={kind} id={request_id} pending={len(pending)} speak={spoke}")
+    log(f"request kind={kind} id={request_id} pending={len(pending)} "
+        f"window={window or '-'} speak={spoke}")
 
 
 def on_resolved(extra):
@@ -194,7 +238,11 @@ def on_resolved(extra):
         newest = sorted(pending.values(), key=lambda item: item.get("since", ""))[-1]
         label = KIND_LABEL.get(str(newest.get("kind")), "等待确认")
         prompt = newest.get("prompt") or ""
-        t1tb("goto", "AI", "-t", f"{label}：{prompt}" if prompt else label)
+        window = newest.get("window")
+        args = ["goto", "AI", "-t", f"{label}：{prompt}" if prompt else label]
+        if window:
+            args += ["-w", str(window)]
+        t1tb(*args)
     else:
         t1tb("normal")
     log(f"resolved id={request_id} outcome={outcome} pending={len(pending)}")

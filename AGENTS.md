@@ -45,15 +45,19 @@ t1tb status    # 渲染器在跑时经 socket 问一句，返回 JSON
 
 - 树是唯一抽象：有 `children` 就是分支（其 `action` 被忽略）；叶子只有 `action: "cmd: <shell>"`
   （`sh -c` 独立 session，丢弃输出），没 action 的叶子只聚焦 agent。别往渲染器加 builtin 或 label 特例。
-- 节点字段：`label`、`children`、`gap`（左间距）、`text`（向下继承）、`windowMatch`（最内层胜出）、
-  `key`（物理键触发）、`hidden`、`buttonWidth`（层内可覆盖，Fn 层用它画 F1–F12）、`action`。
+- 节点字段：`label`、`children`、`gap`（左间距）、`text`（向下继承）、`key`（物理键触发）、
+  `hidden`、`buttonWidth`（层内可覆盖，Fn 层用它画 F1–F12）、`action`。`windowMatch` 仅兼容保留、不再用于定位。
   顶层只放 `buttonWidth` / `gap` / `levelGap` / `children`。旧文档的 `groupGap` / `aiGap` 已废，
   改用键上的显式 `gap`；JSON5 不原谅缺分隔符逗号。
 - 清洗夹取会写日志（不再静默）：`depth > 4` 丢弃该层、`buttonWidth` 80–182、`gap` 4–80。
-- 命令分类：完全本地的是 `volume` / `kbd` / `voice`；`display`、`goto`、`text`、`insert`、`close`、
-  `status` / `normal` / `quit` / `root` 走 socket，要求渲染器在跑，否则 `renderer not running`。
-  `finish` 的 arm 判断在本地（TTL 内再击才关），两个动作都发 socket；`close` 先 `hl.dsp.window.close`、
-  ~1.5s 后仍在就 kill（Electron 只回 ok 却不关窗，缺这步会静默失败）。
+- 目标窗口三级解析（`TouchBar.agent_window`）：显式 `-w` > hook 锁定的触发者窗口 > 当前聚焦窗口 > 旧关键词兜底。
+  hook 用 `getppid()` + `/proc` PPid 链找到拥有 Hyprland 窗口的祖先，随 `goto AI -w <addr>` 锁定；
+  `normal`/`root` 清除锁定。`insert` / `close` / `goto` 都带 `-w <addr>`，`status` 回报锁定值。
+  这样支持各种 agent，不靠 class/title 猜。gateway/无窗口场景反查返回 None，退回当前聚焦窗口。
+- 命令分类：完全本地的是 `volume` / `kbd` / `voice` / `open`（新 session 跑命令，按钮配「打开什么」）；
+  `display`、`goto`、`text`、`insert`、`close`、`status` / `normal` / `quit` / `root` 走 socket，要求渲染器在跑，
+  否则 `renderer not running`。`finish` 的 arm 判断在本地（TTL 内再击才关），两个动作都发 socket；
+  `close` 先 `hl.dsp.window.close`、~1.5s 后仍在就 kill（Electron 只回 ok 却不关窗，缺这步会静默失败）。
 - CJK 不能用 `wtype` 打：非 ASCII 的 `insert` 走 `wl-copy` + `Ctrl+Shift+V`（结束后恢复剪贴板）。
 - 焦点/注入/关窗依赖 Hyprland ≥ 0.56 的 Lua dispatch `hl.dsp.focus({window="address:0x…"})`；
   旧的 `hyprctl dispatch focuswindow address:…` 在 0.56 是解析错误。

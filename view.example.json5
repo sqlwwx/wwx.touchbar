@@ -32,7 +32,7 @@
       text: "AI 交互模式 · 右侧 ‹AI 回根层",
       windowMatch: ["omarchy.agent", "hermes"],
       children: [
-        { label: "生", action: "cmd: omarchy-launch-terminal hermes chat" },
+        { label: "生", action: "cmd: t1tb open omarchy-launch-terminal hermes chat" },
         { label: "死", action: "cmd: t1tb finish" },   // 一次=发收尾提示词，再点一次=关窗
         { label: "善", action: "cmd: t1tb insert 善", gap: 22 },
         { label: "恶", action: "cmd: t1tb insert no" },

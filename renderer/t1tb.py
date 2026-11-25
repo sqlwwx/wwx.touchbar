@@ -2,19 +2,23 @@
 """
 t1tb — 从 shell 里完成触摸条按键能做的所有事。按键执行 `cmd: t1tb …`。
 
+目标窗口：默认作用于当前聚焦窗口；agent 触发时由 hook 锁定触发者窗口。
+所有交互命令都可带 -w <address> 显式指定窗口（ai.sock status 会回报当前锁定值）。
+
 渲染器命令（需要条形界面，通过 ~/.local/state/t1-touchbar/ai.sock 通信）：
-  t1tb goto LABEL [-t TEXT]  按 label 跳到任意树节点（t1tb goto AI）
+  t1tb goto LABEL [-t TEXT] [-w ADDR]  按 label 跳到任意树节点（t1tb goto AI）
   t1tb text -t TEXT          设置 agent 文字，留在当前层
-  t1tb root                  回到根层（别名：normal）
+  t1tb root                  回到根层并清除锁定的窗口（别名：normal）
   t1tb status | quit
-  t1tb insert TEXT [-n]      聚焦 agent 窗口并粘贴 TEXT（+ 回车）
-  t1tb close                 关闭 agent 窗口（windowMatch 和 insert 相同）
+  t1tb insert TEXT [-n] [-w ADDR]   聚焦目标窗口并粘贴 TEXT；-n 不按回车
+  t1tb close [-w ADDR]       关闭目标窗口（先礼貌请求，不行再 kill）
   t1tb finish                收尾：第一下贴入收尾提示词并 arm，
                              10 分钟内第二下关闭 agent 窗口
   t1tb key NAME              向聚焦窗口发送真实按键（f1..f12、esc）
   t1tb display up|down       面板背光调一档（T1 STEP_DISPLAY）
 
 本地命令（不需要 socket）：
+  t1tb open CMD [ARGS...]    在新 session 里启动命令（按钮上配「打开什么」）
   t1tb volume up|down|mute [N] [--quiet]   默认步长 6%，除非 --quiet 否则显示 OSD
   t1tb volume status
   t1tb kbd up|down|toggle|off [--quiet]    键盘背光，除非 --quiet 否则显示 OSD
@@ -78,6 +82,21 @@ def osd(icon=None, percent=None, message=None):
 
 def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def open_app(argv):
+    """在新 session 里启动命令，供按钮配置「打开什么」。"""
+    if not argv:
+        print("open needs a command", file=sys.stderr)
+        return 1
+    try:
+        subprocess.Popen(argv, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as exc:
+        print(f"open failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({"open": " ".join(argv)}, ensure_ascii=False))
+    return 0
 
 
 # ---------- 音量 ----------
@@ -307,9 +326,14 @@ def main(argv):
         return {"volume": volume, "kbd": kbd, "voice": voice}[cmd](argv[1:])
     if cmd == "finish":
         return finish()
-    text = None
-    if "-t" in argv:
-        text = argv[argv.index("-t") + 1]
+    if cmd == "open":
+        return open_app(argv[1:])
+
+    def flag(name):
+        return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else None
+
+    text = flag("-t")
+    window = flag("-w")
     try:
         if cmd == "text":
             if text is None:
@@ -317,18 +341,34 @@ def main(argv):
             req = {"cmd": "text", "text": text}
         elif cmd in ("normal", "status", "quit", "root", "close"):
             req = {"cmd": cmd}
+            if window and cmd == "close":
+                req["window"] = window
         elif cmd == "goto":
-            label = next((a for a in argv[1:] if not a.startswith("-") and a != text), "")
+            label = next((a for a in argv[1:]
+                          if not a.startswith("-") and a not in (text, window)), "")
             if not label:
                 usage(1)
             req = {"cmd": "goto", "label": label}
             if text is not None:
                 req["text"] = text
+            if window:
+                req["window"] = window
         elif cmd == "insert":
-            rest = [a for a in argv[1:] if a != "-n"]
+            skip = {"-n", "-t", "-w"}
+            rest = []
+            args = argv[1:]
+            i = 0
+            while i < len(args):
+                if args[i] in skip:
+                    i += 2 if args[i] in ("-t", "-w") else 1
+                else:
+                    rest.append(args[i])
+                    i += 1
             if not rest:
                 usage(1)
             req = {"cmd": "insert", "text": " ".join(rest), "submit": "-n" not in argv}
+            if window:
+                req["window"] = window
         elif cmd == "key":
             if len(argv) < 2:
                 usage(1)

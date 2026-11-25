@@ -486,6 +486,9 @@ class TouchBar:
         self.mode = "normal"
         self.path = ()
         self.text = ""
+        # AI 交互的目标窗口 address。hook 触发时随 goto 传入并锁定；
+        # 为空时 insert/close 作用于当前聚焦窗口。切回根层时清空。
+        self.target_window = None
         self.config = load_config()
         self.cfg_mtime = self._config_mtime()
         self.dirty = True
@@ -662,9 +665,11 @@ class TouchBar:
             return {"ok": True, "quitting": True}
         if cmd == "status":
             return {"ok": True, "mode": self.mode, "text": self.text,
-                    "path": list(self.path), "level": str((node_at(self.config, self.path) or {}).get("label", ""))}
+                    "path": list(self.path), "level": str((node_at(self.config, self.path) or {}).get("label", "")),
+                    "window": self.target_window}
         if cmd in ("normal", "root"):
             self.go_root()
+            self.target_window = None
             return {"ok": True, "mode": self.mode, "path": []}
         if cmd == "goto":
             label = str(req.get("label") or "")
@@ -673,9 +678,13 @@ class TouchBar:
                 raise ValueError(f"no entry labelled {label!r}")
             if "text" in req:
                 self.text = str(req.get("text") or "")
+            # AI 触发时 hook 带上触发者的窗口 address，锁定为本次交互目标。
+            # 不带则沿用上一次的目标（普通按钮点击不改它）。
+            if "window" in req:
+                self.target_window = str(req.get("window") or "") or None
             self.goto(target)
             return {"ok": True, "mode": self.mode, "text": self.text,
-                    "path": list(self.path)}
+                    "path": list(self.path), "window": self.target_window}
         if cmd == "text":
             self.text = str(req.get("text") or "")
             self.dirty = True
@@ -684,12 +693,16 @@ class TouchBar:
                     "path": list(self.path)}
         if cmd == "insert":
             text = str(req.get("text") or "")
+            window = str(req.get("window") or "") or None
             threading.Thread(target=self.inject,
-                             args=(text, bool(req.get("submit", True))), daemon=True).start()
-            return {"ok": True, "insert": text}
+                             args=(text, bool(req.get("submit", True)), window),
+                             daemon=True).start()
+            return {"ok": True, "insert": text, "window": window or self.target_window}
         if cmd == "close":
-            threading.Thread(target=self.close_agent, daemon=True).start()
-            return {"ok": True, "closing": True}
+            window = str(req.get("window") or "") or None
+            threading.Thread(target=self.close_agent, args=(window,),
+                             daemon=True).start()
+            return {"ok": True, "closing": True, "window": window or self.target_window}
         if cmd == "key":
             # t1tb key f5 → 向聚焦窗口发送真实的 F5。
             name = str(req.get("name") or "").lower()
@@ -1015,14 +1028,24 @@ class TouchBar:
 
         return walk(self.config.get("children") or []) or DEFAULT_AGENT_MATCH
 
-    def agent_window(self):
-        got = run_cmd(["hyprctl", "clients", "-j"])
-        if not got or not got.stdout:
+    def agent_window(self, address=None):
+        """解析本次交互的目标窗口，按优先级：显式 address > 锁定的触发者 > 当前聚焦 > 旧关键词。"""
+        clients = self._clients()
+        if not clients:
             return None
-        try:
-            clients = json.loads(got.stdout)
-        except Exception:
-            return None
+        # 1) 调用方显式指定（t1tb insert/close -w）
+        if address:
+            return next((c for c in clients
+                         if str(c.get("address", "")).lower() == address.lower()), None)
+        # 2) hook 在 AI 触发时锁定的窗口
+        if self.target_window:
+            return next((c for c in clients
+                         if str(c.get("address", "")).lower() == self.target_window.lower()), None)
+        # 3) 当前聚焦窗口（普通按钮操作默认落在这里）
+        active = self._active_client(clients)
+        if active:
+            return active
+        # 4) 兜底：沿用旧的 windowMatch 关键词，兼容没有焦点的场景
         words = [str(w).lower() for w in self.window_match()]
         hits = []
         for client in clients:
@@ -1030,8 +1053,6 @@ class TouchBar:
             if any(w in haystack for w in words):
                 hits.append(client)
                 continue
-            # 运行 agent 的普通终端在 class/title 上没有特征
-            # （`foot` / `foot`），所以要看它的进程树。
             if str(client.get("class", "")).lower() not in TERMINAL_CLASSES:
                 continue
             try:
@@ -1040,15 +1061,36 @@ class TouchBar:
                 continue
             if pid > 0 and any(any(w in line for w in words) for line in self._cmdlines(pid)):
                 hits.append(client)
-        if not hits:
-            return None
-        # 按键必须落到用户正在看的窗口，而不是 Hyprland 列表里的第一个客户端。
-        return min(hits, key=lambda c: c.get("focusHistoryID", 1 << 30))
+        return min(hits, key=lambda c: c.get("focusHistoryID", 1 << 30)) if hits else None
 
-    def focus_agent(self):
-        client = self.agent_window()
+    def _clients(self):
+        got = run_cmd(["hyprctl", "clients", "-j"])
+        if not got or not got.stdout:
+            return []
+        try:
+            return json.loads(got.stdout)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _active_client(clients):
+        got = run_cmd(["hyprctl", "activewindow", "-j"])
+        if not got or not got.stdout:
+            return None
+        try:
+            active = json.loads(got.stdout)
+        except Exception:
+            return None
+        address = str(active.get("address", "")).lower()
+        if not address or address == "0x0":
+            return None
+        return next((c for c in clients
+                     if str(c.get("address", "")).lower() == address), None)
+
+    def focus_agent(self, address=None):
+        client = self.agent_window(address)
         if not client:
-            osd(None, None, message="没找到 AI 窗口")
+            osd(None, None, message="没找到窗口")
             return False
         # Hyprland 0.56 把 `hyprctl dispatch` 路由到它的 Lua dispatcher，
         # 所以老式的 "focuswindow address:0x..." 写法是解析错误。
@@ -1068,16 +1110,16 @@ class TouchBar:
         return any(str(c.get("address", "")).lower() == str(address).lower()
                    for c in clients)
 
-    def close_agent(self):
-        """关闭 agent 窗口；应用不响应关闭请求时升级为 kill。
+    def close_agent(self, address=None):
+        """关闭目标窗口；应用不响应关闭请求时升级为 kill。
 
         Electron/Chromium（Hermes 桌面应用）收到 `xdg_toplevel.close` 会回 "ok"
         然后保持窗口不关——礼貌请求对它无效。终端会正常关闭。
         所以：先礼貌请求，等待，检查，再 kill。
         """
-        client = self.agent_window()
+        client = self.agent_window(address)
         if not client:
-            osd(None, None, message="没找到 AI 窗口")
+            osd(None, None, message="没找到窗口")
             return False
         address = client["address"]
         run_cmd(["hyprctl", "dispatch",
@@ -1092,11 +1134,11 @@ class TouchBar:
         osd(None, None, message="会话已结束（强制关闭）")
         return True
 
-    def inject(self, text, submit=True):
+    def inject(self, text, submit=True, address=None):
         if not text:
-            self.focus_agent()
+            self.focus_agent(address)
             return
-        if not self.focus_agent():
+        if not self.focus_agent(address):
             return
         if text.isascii() and "\n" not in text:
             run_cmd(["wtype", "-s", "60", text])
