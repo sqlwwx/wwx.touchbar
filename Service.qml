@@ -4,7 +4,7 @@ import QtQuick
 
 // Lifecycle wrapper for the Touch Bar renderer. The Touch Bar is a DRM device
 // owned by /run/t1bridge/touchbar.sock, so the drawing lives in
-// renderer/touchbar_ai.py; this service starts it, restarts it when it dies,
+// renderer/touchbar.py; this service starts it, restarts it when it dies,
 // and stops it when the plugin is unloaded.
 Item {
   id: root
@@ -12,7 +12,7 @@ Item {
   // Injected by omarchy-shell.
   property var shell: null
 
-  readonly property string pluginDir: (Quickshell.env("HOME") || "") + "/.config/omarchy/plugins/wwx.touchbar-ai"
+  readonly property string pluginDir: (Quickshell.env("HOME") || "") + "/.config/omarchy/plugins/wwx.touchbar"
   property bool unloading: false
 
   Process {

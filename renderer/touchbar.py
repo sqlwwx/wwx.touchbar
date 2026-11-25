@@ -1,5 +1,5 @@
 #!/home/wwx/.local/share/t1-touchbar/venv/bin/python3
-"""wwx.touchbar-ai — Touch Bar UI for the Omarchy agent (t1bridge renderer).
+"""wwx.touchbar — Touch Bar UI for the Omarchy agent (t1bridge renderer).
 
 Owns /run/t1bridge/touchbar.sock and draws ONE tree, one level at a time:
 
@@ -57,7 +57,7 @@ except ImportError:  # fall back to strict JSON, and say so in the log
     _JSON5 = None
 
 HOME = Path.home()
-PLUGIN = HOME / ".config/omarchy/plugins/wwx.touchbar-ai"
+PLUGIN = HOME / ".config/omarchy/plugins/wwx.touchbar"
 # JSON5 (comments, trailing commas, bare keys). One file, no fallbacks.
 CONFIG_PATH = PLUGIN / "view.json5"
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(HOME / ".local/state"))) / "t1-touchbar"

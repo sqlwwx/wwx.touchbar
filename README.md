@@ -1,4 +1,4 @@
-# wwx.touchbar-ai
+# wwx.touchbar
 
 Touch Bar UI for the Omarchy agent on a t1bridge MacBook.
 
@@ -11,7 +11,7 @@ stops it when the plugin is unloaded.
 manifest.json          kind: service
 Service.qml            supervisor (Quickshell Process, 3 s restart on exit)
 view.json5             the whole button tree (JSON5)
-renderer/touchbar_ai.py  the renderer (Hello / buffers / draw / tap)
+renderer/touchbar.py  the renderer (Hello / buffers / draw / tap)
 renderer/t1tb.py       control CLI (symlinked to ~/.local/bin/t1tb)
 renderer/launch.sh     stop stock renderer, exec renderer
 hooks/human-input.py   Hermes shell hook → touch bar mode + voice
