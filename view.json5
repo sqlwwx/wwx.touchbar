@@ -18,6 +18,7 @@
     { label: "亮 −", action: "cmd: t1tb display down" },
     {
       label: "键",
+      text: "控制键盘背光",
       gap: 22,
       children: [
         { label: "键 +", action: "cmd: t1tb kbd up" },
