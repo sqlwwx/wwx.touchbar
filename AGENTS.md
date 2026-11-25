@@ -58,7 +58,7 @@ t1tb status    # 渲染器在跑时经 socket 问一句，返回 JSON
 - 焦点/注入/关窗依赖 Hyprland ≥ 0.56 的 Lua dispatch `hl.dsp.focus({window="address:0x…"})`；
   旧的 `hyprctl dispatch focuswindow address:…` 在 0.56 是解析错误。
 - Python 风格：UPPER_SNAKE 常量集中在模块顶部、函数 snake_case、无类层次、配置键 camelCase；
-  注释/docstring 现有以英文为主（跟随周围文件），面向用户的 OSD 消息用中文。
+  注释和 docstring 一律用中文（技术术语、协议字段名、shell 命令保留原文）。
 - 两个 CLI 入口同构：`main(argv)` 返回 exit code + 末尾 `raise SystemExit(main(sys.argv[1:]))`；
   `t1tb` 成功 stdout 一行 JSON、失败 stderr + `return 1`。hook 的 `main()` 无参，所有异常都吞掉
   （不能干扰 agent 主循环）。

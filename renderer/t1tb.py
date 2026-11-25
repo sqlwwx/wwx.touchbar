@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
-"""t1tb — everything a touch-bar key can do, from a shell. Keys run `cmd: t1tb …`.
+"""
+t1tb — 从 shell 里完成触摸条按键能做的所有事。按键执行 `cmd: t1tb …`。
 
-Renderer (needs the bar, talks over ~/.local/state/t1-touchbar/ai.sock):
-  t1tb goto LABEL [-t TEXT]  jump to any tree node by label (t1tb goto AI)
-  t1tb text -t TEXT          set the agent text, stay on the current level
-  t1tb root                  back to the root row (alias: normal)
+渲染器命令（需要条形界面，通过 ~/.local/state/t1-touchbar/ai.sock 通信）：
+  t1tb goto LABEL [-t TEXT]  按 label 跳到任意树节点（t1tb goto AI）
+  t1tb text -t TEXT          设置 agent 文字，留在当前层
+  t1tb root                  回到根层（别名：normal）
   t1tb status | quit
-  t1tb insert TEXT [-n]      focus the agent window and paste TEXT (+ Return)
-  t1tb close                 close the agent window (same windowMatch as insert)
-  t1tb finish                wrap up: 1st tap pastes the wrap-up prompt and arms,
-                             2nd tap within 10 min closes the agent window
-  t1tb key NAME              send a real key to the focused window (f1..f12, esc)
-  t1tb display up|down       one Touch Bar panel-backlight step (T1 STEP_DISPLAY)
+  t1tb insert TEXT [-n]      聚焦 agent 窗口并粘贴 TEXT（+ 回车）
+  t1tb close                 关闭 agent 窗口（windowMatch 和 insert 相同）
+  t1tb finish                收尾：第一下贴入收尾提示词并 arm，
+                             10 分钟内第二下关闭 agent 窗口
+  t1tb key NAME              向聚焦窗口发送真实按键（f1..f12、esc）
+  t1tb display up|down       面板背光调一档（T1 STEP_DISPLAY）
 
-Local (no socket needed):
-  t1tb volume up|down|mute [N] [--quiet]   default step 6 %, OSD unless --quiet
+本地命令（不需要 socket）：
+  t1tb volume up|down|mute [N] [--quiet]   默认步长 6%，除非 --quiet 否则显示 OSD
   t1tb volume status
-  t1tb kbd up|down|toggle|off [--quiet]    keyboard backlight, OSD unless --quiet
+  t1tb kbd up|down|toggle|off [--quiet]    键盘背光，除非 --quiet 否则显示 OSD
   t1tb kbd status
-  t1tb voice on|off|[toggle]|status        spoken prompt announcements
+  t1tb voice on|off|[toggle]|status        语音播报提示词
 """
 
 import json
@@ -35,11 +36,10 @@ TTS_CONFIG = Path.home() / ".local/share/t1-touchbar/tts/tts.json"
 KBD_LED = Path("/sys/class/leds/spi::kbd_backlight/brightness")
 KBD_MAX = Path("/sys/class/leds/spi::kbd_backlight/max_brightness")
 KBD_STATE = STATE / "kbd-backlight.json"
-KBD_STEP = 51  # 20 % of 255
+KBD_STEP = 51  # 255 的 20%
 TRUTHY = ("1", "true", "yes", "on")
-# `t1tb finish` is a two-tap verb: the first tap pastes the wrap-up prompt and
-# arms this flag, the second one closes the window. The flag expires so a stale
-# arm from ten minutes ago cannot close a window you opened since.
+# `t1tb finish` 是两次点击的动作：第一下贴入收尾提示词并置上这个标记，
+# 第二下才关窗。标记会过期，避免十分钟前的旧标记关掉你刚开的窗口。
 FINISH_STATE = STATE / "finish-armed.json"
 FINISH_TTL = 600
 
@@ -80,7 +80,7 @@ def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
-# ---------- volume ----------
+# ---------- 音量 ----------
 
 def volume_level():
     try:
@@ -126,7 +126,7 @@ def volume(argv):
     return 1
 
 
-# ---------- keyboard backlight ----------
+# ---------- 键盘背光 ----------
 
 def kbd_levels():
     try:
@@ -208,7 +208,7 @@ def kbd(argv):
     return 0
 
 
-# ---------- voice ----------
+# ---------- 语音 ----------
 
 def read_tts():
     try:
@@ -225,7 +225,7 @@ def write_tts(cfg):
 
 
 def voice_state():
-    """Mirror the hook's precedence: $T1TTS_SPEAK wins over tts.json."""
+    """沿用 hook 的优先级：$T1TTS_SPEAK 优先于 tts.json。"""
     env = os.environ.get("T1TTS_SPEAK")
     if env is not None:
         return env.strip().lower() in TRUTHY, "env T1TTS_SPEAK"
@@ -282,7 +282,7 @@ def finish_disarm():
 
 
 def finish():
-    """Two taps: wrap up, then close. Never closes on the first tap."""
+    """两次点击：先收尾，再关闭。第一下绝不关窗。"""
     if finish_armed():
         finish_disarm()
         reply = send({"cmd": "close"})

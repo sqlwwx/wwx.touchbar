@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""Hermes shell hook → Touch Bar agent level.
+"""
+Hermes shell hook → Touch Bar 的 agent 层。
 
-Subscribed to two events in ~/.hermes/config.yaml:
+在 ~/.hermes/config.yaml 里订阅两个事件：
 
-  on_human_input_request   the agent is about to block on a person
-                           (kind = sudo | clarify | approval)
-  on_human_input_resolved  that wait ended (answered / timeout / withdrawn …)
+  on_human_input_request   agent 即将等待人工介入
+                           （kind = sudo | clarify | approval）
+  on_human_input_resolved  该等待结束（已回答 / 超时 / 撤回 …）
 
-On a request it jumps the bar to the "AI" node of the tree and writes the prompt
-into that level's text area; when the last pending prompt resolves it goes back to
-the root row. The node name is the only thing this hook knows about the config.
-A small counter in the state dir keeps concurrent prompts from clearing each
-other's text.
+收到 request 时，把条形界面跳到树里的 "AI" 节点，并把提示词写进该层的文字区；
+最后一个 pending 提示解决后回到根层。节点名是这个 hook 关于配置的全部知识。
+状态目录里的一个小计数器让并发的提示不会互相清掉对方的文字。
 
-Payload arrives as JSON on stdin; stdout is ignored for these observer events.
-Any failure is swallowed: a hook must never disturb the agent loop.
+payload 以 JSON 从 stdin 进来；这些观察者事件忽略 stdout。
+任何失败都吞掉：hook 绝不能干扰 agent 主循环。
 """
 
 import fcntl
@@ -38,20 +37,18 @@ KIND_LABEL = {
     "approval": "等待审批",
 }
 
-# Voice announcement: the prompt is read out so a blocked agent is noticed even
-# when you are not looking at the bar. Synth + playback run detached — the hook
-# has a 5 s budget and edge-tts alone takes ~1 s.
+# 语音播报：把提示词读出来，这样即使没看条形界面也能发现 agent 被卡住。
+# 合成 + 播放以分离进程运行——hook 只有 5 秒预算，而 edge-tts 本身就要 ~1 秒。
 #
-# It is strictly optional. Priority: $T1TTS_SPEAK > "speak" in the tts config >
-# default on. Set either to false/none/0 to keep the bar silent.
+# 完全可选。优先级：$T1TTS_SPEAK > tts 配置里的 "speak" > 默认开。
+# 任一项设为 false/none/0 都让条形界面保持静音。
 SAY = HOME / ".local/share/t1-touchbar/tts/say.py"
 TTS_CONFIG = HOME / ".local/share/t1-touchbar/tts/tts.json"
 TRUTHY = ("1", "true", "yes", "on")
 
-# The Touch Bar shows two lines of ~26 CJK chars; keep the head of the prompt.
+# Touch Bar 能显示两行、每行约 26 个汉字；保留提示词开头。
 MAX_CHARS = 110
-# A prompt whose resolution never arrives (crashed turn, killed TUI) must not pin
-# the agent level forever.
+# 永远等不到 resolved 的提示（回合崩溃、TUI 被杀）不能让界面永远停在 agent 层。
 STALE_SECONDS = 600
 
 
@@ -98,7 +95,7 @@ def speak(text):
 
 
 def clean(text):
-    """One-line, length-bounded, control-character-free text for the bar."""
+    """给条形界面用的一行、限长、无控制字符的文字。"""
     flat = " ".join(str(text or "").split())
     if len(flat) > MAX_CHARS:
         flat = flat[: MAX_CHARS - 1] + "…"
@@ -124,7 +121,7 @@ def load_pending():
 
 @contextmanager
 def pending_lock():
-    """Serialize hook read-modify-write; degrade to no lock if locking fails."""
+    """串行化 hook 的读-改-写；加锁失败时退化为无锁。"""
     handle = None
     try:
         STATE.mkdir(parents=True, exist_ok=True)
@@ -161,8 +158,8 @@ def on_request(payload, extra):
 
     with pending_lock():
         pending = load_pending()
-        # `hermes hooks test` fires with no request_id; key those by kind so a
-        # repeated synthetic run does not stack up phantom pending prompts.
+        # `hermes hooks test` 触发时没有 request_id；按 kind 作为键，
+        # 这样重复的合成运行不会堆积虚假的 pending 提示。
         key = request_id or f"anon:{kind}"
         pending[key] = {
             "kind": kind,
@@ -187,15 +184,13 @@ def on_resolved(extra):
         if request_id:
             pending.pop(request_id, None)
         else:
-            # No id to match on: clear every synthetic entry, since the paired
-            # request could not be identified either.
+            # 没有 id 可匹配：清掉所有合成条目，因为对应的 request 也无法识别。
             for key in [k for k in pending if k.startswith("anon:")]:
                 pending.pop(key, None)
         save_pending(pending)
 
     if pending:
-        # Another prompt is still waiting: show the newest one instead of
-        # dropping back to the normal bar.
+        # 还有提示在等待：显示最新的那个，而不是退回普通条形界面。
         newest = sorted(pending.values(), key=lambda item: item.get("since", ""))[-1]
         label = KIND_LABEL.get(str(newest.get("kind")), "等待确认")
         prompt = newest.get("prompt") or ""

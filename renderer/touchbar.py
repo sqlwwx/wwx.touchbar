@@ -1,40 +1,39 @@
 #!/home/wwx/.local/share/t1-touchbar/venv/bin/python3
-"""wwx.touchbar — Touch Bar UI for Omarchy (t1bridge renderer).
+"""
+wwx.touchbar — Omarchy 的 Touch Bar UI（t1bridge 渲染器）。
 
-Owns /run/t1bridge/touchbar.sock and draws ONE tree, one level at a time:
+独占 /run/t1bridge/touchbar.sock，每次绘制同一棵树的一层：
 
-  root    esc | <root entries>                                      [| AI›]
-  deeper  esc | [agent text] | <level entries> | <level key ‹name>
+  root    esc | <根层按键>                                      [| AI›]
+  deeper  esc | [agent 文字] | <本层按键> | <层级键 ‹名称>
 
-An entry with `children` is a branch: tapping it descends. The rightmost key
-while descended is the level key — it carries the name of the level you are in
-and pops back up. At the root there is no level key: every entry, the `AI`
-branch included, is drawn purely from its own fields (`gap` for the left
-spacing, `text` for the agent text area, `children` for the subtree). No label
-is special-cased anywhere. `windowMatch` on a node decides which window
-`t1tb insert` focuses (inherited down the path, fallback DEFAULT_AGENT_MATCH).
+有 `children` 的节点就是分支：点击会进入下一层。进入后最右侧的键是层级键——
+显示当前层名称，点它返回上一级。根层没有层级键：包括 `AI` 在内的每个按键都
+只由自身字段绘制（`gap` 控左侧间距、`text` 控 agent 文字区、`children` 控子树）。
+没有任何 label 被特判。节点的 `windowMatch` 决定 `t1tb insert` 聚焦哪个窗口
+（沿路径向下继承，缺省回退到 DEFAULT_AGENT_MATCH）。
 
-Taps:
-  every leaf key runs `action: "cmd: <shell>"` — one form, no builtins. The
-  shell line is whatever the config says (`cmd: t1tb volume up`, `cmd: wtype -k
-  F5`, …). A leaf with no action just focuses the agent window.
+点击：
+  每个叶子键执行 `action: "cmd: <shell>"` —— 只有这一种形式，没有内置行为。
+  命令行由配置决定（`cmd: t1tb volume up`、`cmd: wtype -k F5`、…）。
+  没有 action 的叶子只聚焦 agent 窗口。
 
-Control socket (for the agent): ~/.local/state/t1-touchbar/ai.sock, one JSON
-line request / one JSON line reply:
-  {"cmd":"goto","label":"…","text":"…"}   jump to any node by its label
-  {"cmd":"text","text":"…"}               set the agent text, stay where we are
-  {"cmd":"normal"}                        back to the root row
+控制 socket（给 agent 用）：~/.local/state/t1-touchbar/ai.sock，一行 JSON 请求 /
+一行 JSON 回复：
+  {"cmd":"goto","label":"…","text":"…"}   按 label 跳到任意节点
+  {"cmd":"text","text":"…"}               设置 agent 文字，留在当前层
+  {"cmd":"normal"}                        回到根层
   {"cmd":"status"} {"cmd":"quit"}
-  {"cmd":"insert","text":"…","submit":true}   focus the agent window + paste
-  {"cmd":"close"}                         close the agent window (close, then kill)
-  {"cmd":"display","up":true|false}       one panel-backlight step (T1)
-Nothing in the config is special: there is no "AI mode", only levels of the one
-tree. Use the `t1tb` CLI instead of talking to it directly.
+  {"cmd":"insert","text":"…","submit":true}   聚焦 agent 窗口并粘贴
+  {"cmd":"close"}                         关闭 agent 窗口（先 close，再 kill）
+  {"cmd":"display","up":true|false}       面板背光调一档（T1）
+配置里没有任何特殊概念：没有"AI 模式"，只有同一棵树的不同层。
+用 `t1tb` CLI 操作，不要直接跟 socket 说话。
 
-Config: ~/.config/omarchy/wwx.touchbar.view.json5 (JSON5: comments, trailing
-commas, bare keys), reloaded on save. One file, one tree, no legacy shapes.
-It lives outside the plugin directory on purpose: the plugin dir is code that
-gets reinstalled, the button tree is user data. Override with $T1TB_CONFIG.
+配置：~/.config/omarchy/wwx.touchbar.view.json5（JSON5：注释、尾逗号、裸键），
+保存即重载。一个文件、一棵树，没有旧格式。
+它特意放在插件目录外：插件目录是会被重装替换的代码，按钮树是用户数据。
+用 $T1TB_CONFIG 可以覆盖路径。
 """
 
 import fcntl
@@ -53,17 +52,15 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-try:  # JSON5 = JSON + trailing commas, comments, bare keys
+try:  # JSON5 = JSON + 尾逗号、注释、裸键
     import json5 as _JSON5
-except ImportError:  # fall back to strict JSON, and say so in the log
+except ImportError:  # 回退到严格 JSON，并在日志里说明
     _JSON5 = None
 
 HOME = Path.home()
 PLUGIN = HOME / ".config/omarchy/plugins/wwx.touchbar"
-# The button tree is user data, so it lives beside shell.json in the omarchy
-# config root rather than inside the plugin directory, which is code and gets
-# replaced on reinstall. The filename carries the plugin id because that root is
-# shared with the rest of omarchy's config.
+# 按钮树是用户数据，放在 omarchy 配置根（shell.json 旁边），而不是插件目录里——
+# 插件目录是代码，重装会被替换。文件名带插件 id，因为这个根目录和 omarchy 其它配置共用。
 CONFIG_PATH = Path(os.environ.get("T1TB_CONFIG")
                    or HOME / ".config/omarchy/wwx.touchbar.view.json5")
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(HOME / ".local/state"))) / "t1-touchbar"
@@ -79,15 +76,14 @@ FONT_BOLD = "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc"
 HELLO, REGISTER, SUBMIT, TAP_KEYS = 0x0001, 0x0002, 0x0003, 0x0004
 STEP_DISPLAY = 0x0008
 HELLO_ACK, ACK, ERROR, FRAME_RELEASED, INPUT_FRAME = 0x8001, 0x8002, 0x8003, 0x9001, 0x9002
-FEATURES = 0x2F  # INITIAL_SERVICE(0x07) | TOUCH_ID_CANCELLATION(0x20) | DISPLAY_BRIGHTNESS(0x08)
+FEATURES = 0x2F  # 能力位：INITIAL_SERVICE(0x07) | TOUCH_ID_CANCELLATION(0x20) | DISPLAY_BRIGHTNESS(0x08)
 KEY_ESC = 1
-# Physical keys that can drive the bar. A node opts in with `key: "fn"`; tapping
-# the key on the keyboard toggles into that node's level (tap again to leave).
-# KEY_FN is what the Apple SPI Keyboard reports; the device is opened read-only.
-KEY_CODES = {"fn": 464}          # KEY_FN
+# 能驱动触摸条的物理键。节点用 `key: "fn"` 声明；按一下键盘上的键进入该节点那一层
+# （再按一次退出）。KEY_FN 是 Apple SPI 键盘上报的键码；设备以只读方式打开。
+KEY_CODES = {"fn": 464}          # 键码：KEY_FN
 KEY_DEVICES = ("Apple SPI Keyboard",)
-# Linux input keycodes for the keys the bar can synthesize (TapKeys opcode).
-# F1..F12 are 59..68 then 87,88 (F11/F12) — not contiguous, hence the table.
+# 触摸条能合成按键的 Linux 输入键码（TapKeys opcode）。
+# F1..F12 是 59..68，然后是 87,88（F11/F12）——不连续，所以用这张表。
 KEY_TAP = {**{f"f{n}": 58 + n for n in range(1, 11)}, "f11": 87, "f12": 88,
            "esc": KEY_ESC}
 
@@ -99,24 +95,23 @@ LABEL_DIM = (200, 200, 200)
 
 BUTTON_W = 182
 GAP = 4
-# Gap to the left of the level key (the "‹level name" key you get once you have
-# descended), so it reads as a way out rather than one more control.
+# 层级键（进入某层后出现的 "‹层名" 键）左侧的间距，让它看起来是"出口"而不是又一个控制键。
 LEVEL_GAP = 44
-# Medium gap between blocks of related keys (volume pair, brightness pair, …).
+# 相关按键块之间的中等间距（音量一组、亮度一组，…）。
 GROUP_GAP = 22
 RADIUS = 8
 ESC_W = 166
 
-# Fallback window match for focus_agent() when no node declares `windowMatch`.
-# A node's own list wins, so any agent CLI can be targeted from the config.
+# 节点没有声明 `windowMatch` 时 focus_agent() 使用的默认窗口匹配。
+# 节点自己的列表优先，所以任何 agent CLI 都能在配置里指定。
 DEFAULT_AGENT_MATCH = ["omarchy.agent", "hermes"]
 TERMINAL_CLASSES = ("foot", "alacritty", "kitty", "ghostty", "org.wezfurlong.wezterm",
                     "com.mitchellh.ghostty", "wezterm", "xterm", "alacritty-")
 
 DEFAULT_CONFIG = {
     "buttonWidth": 96,
-    "gap": 4,          # default spacing between keys; an entry's own `gap` wins
-    "levelGap": 44,    # gap left of the level key
+    "gap": 4,          # 按键间距默认值；节点自己的 `gap` 优先
+    "levelGap": 44,    # 层级键左侧的间距
     "children": [
         {"label": "音 +", "action": "cmd: t1tb volume up"},
         {"label": "音 −", "action": "cmd: t1tb volume down"},
@@ -178,9 +173,9 @@ def run_cmd(cmd, timeout=2.0):
 
 
 def clean_entries(items, depth=0):
-    """Sanitise one level of the button tree; keeps valid `children` subtrees.
+    """清洗按钮树的一层，只保留合法的 `children` 子树。
 
-    Depth is capped so a hand-edited file cannot make the bar unreachable.
+    限制深度，避免手改的配置让条形界面不可达。
     """
     out = []
     if not isinstance(items, list):
@@ -203,7 +198,7 @@ def clean_entries(items, depth=0):
 
 
 def parse_config_text(text):
-    """JSON5 when available (comments, trailing commas, bare keys), else JSON."""
+    """有 json5 时用 JSON5（注释、尾逗号、裸键），否则退回严格 JSON。"""
     if _JSON5 is not None:
         return _JSON5.loads(text)
     return json.loads(text)
@@ -226,8 +221,8 @@ def load_config():
         return cfg
     except Exception as exc:
         log(f"config invalid, using defaults: {exc}")
-        # A parse failure used to be silent: the bar fell back to the built-in
-        # layout and looked "almost right". Say it out loud.
+        # 以前解析失败是静默的：触摸条回退到内置布局，看起来"差不多对"。
+        # 现在要明确说出来。
         osd(None, None, f"配置有误({CONFIG_PATH.name})：{str(exc)[:44]}")
         return json.loads(json.dumps(DEFAULT_CONFIG))
 
@@ -249,11 +244,11 @@ def load_config():
     return cfg
 
 
-# --------------------------------------------------------------- geometry
+# --------------------------------------------------------------- 布局计算
 
 
 def level_entries(config, path):
-    """Entries at the given tree path, or None when the path went stale."""
+    """返回给定树路径上的节点；路径已失效时返回 None。"""
     entries = config.get("children") or []
     for index in path:
         if not isinstance(index, int) or not 0 <= index < len(entries):
@@ -266,7 +261,7 @@ def level_entries(config, path):
 
 
 def node_at(config, path):
-    """The entry that owns this level (last path step), or None at the root."""
+    """拥有当前层的节点（路径最后一步）；在根层返回 None。"""
     if not path:
         return None
     parent = level_entries(config, path[:-1]) or []
@@ -275,7 +270,7 @@ def node_at(config, path):
 
 
 def find_level(config, label):
-    """Path of the first entry with this label anywhere in the tree (DFS)."""
+    """树中第一个匹配该 label 的节点的路径（深度优先）。"""
     if not label:
         return ()
 
@@ -293,7 +288,7 @@ def find_level(config, label):
 
 
 def find_key_node(config, key):
-    """Path of the first entry declaring `key: "<name>"` (e.g. fn)."""
+    """第一个声明 `key: "<name>"` 的节点路径（如 fn）。"""
     name = str(key or "").lower()
     if not name:
         return ()
@@ -312,10 +307,10 @@ def find_key_node(config, key):
 
 
 def level_text(config, path):
-    """Hint text of the innermost entry with `text` along the path, else None.
+    """路径上最内层声明 `text` 的节点的提示文字；没有则为 None。
 
-    Inherited downwards on purpose: the agent text area stays visible inside the
-    branch that declared it, without the layout knowing which branch that is.
+    故意向下继承：agent 文字区在声明它的分支内保持可见，
+    而布局代码不需要知道是哪个分支。
     """
     entries = config.get("children") or []
     hint = None
@@ -331,7 +326,7 @@ def level_text(config, path):
 
 
 def level_row(config, path):
-    """Row geometry inherited down the path: {buttonWidth?, gap?}."""
+    """沿路径继承的行布局：{buttonWidth?, gap?}。"""
     row = {}
     entries = config.get("children") or []
     for index in path:
@@ -347,30 +342,28 @@ def level_row(config, path):
 
 
 def build_layout(w, h, config, path=()):
-    """Return (esc_rect, text_rect|None, [(rect, item)]).
+    """返回 (esc 矩形, 文字矩形|None, [(矩形, 节点)])。
 
-    One tree, one row per level. Each entry's own `gap` sets the space to its
-    left, so related keys read as one block when given a wider left gap. An
-    entry with `children` is a branch: the tap descends a level instead of
-    acting. While descended the rightmost key is the
-    level key: it carries the name of the level you are in with a `‹` hint and
-    pops back up. At the root there is no level key, and every entry — the `AI`
-    branch included — is drawn purely from its own fields.
+    同一棵树，每层一行。每个节点自己的 `gap` 决定它左侧的间距，
+    因此配置里给相关按键更大的左间距，就能让它们读起来是一组。
+    有 `children` 的节点是分支：点击会进入下一层而不是执行动作。
+    进入后最右侧的键是层级键：显示当前层名称和 `‹` 提示，点它返回上一级。
+    根层没有层级键，包括 `AI` 在内的每个节点都只由自身字段绘制。
     """
-    # A level can override the row geometry with its own buttonWidth/gap, so a
-    # row of short keys (F1..F12) can be wider than the text-heavy root row.
+    # 某一层可以用自己的 buttonWidth/gap 覆盖行布局，这样短键组成的行（F1..F12）
+    # 可以比文字较多的根层更宽。
     row = level_row(config, path)
     button_w = int(row.get("buttonWidth") or config.get("buttonWidth") or BUTTON_W)
     level_gap = int(config.get("levelGap", LEVEL_GAP))
     default_gap = int(row.get("gap", config.get("gap", GAP)))
     esc = (4, 0, ESC_W, h)
     entries = level_entries(config, path)
-    if entries is None:  # config edited while drilled in
+    if entries is None:  # 在深层时改了配置
         path = ()
         entries = config.get("children") or []
     keys = []
-    # Array order is left-to-right: the first entry sits leftmost, the last one
-    # ends up at the right edge (or next to the level key once descended).
+    # 数组顺序就是从左到右：第一个节点在最左，最后一个在最右
+    # （进入某层后则紧挨层级键）。
     for index, entry in enumerate(entries):
         branch = bool(entry.get("children"))
         gap = entry.get("gap")
@@ -378,12 +371,12 @@ def build_layout(w, h, config, path=()):
             "type": "action",
             "label": str(entry["label"]),
             "action": "" if branch else str(entry.get("action", "")),
-            # One spacing knob per key: this key's left gap. No group ids.
+            # 每个键一个间距参数：该键左侧的 gap。没有 group id。
             "gap": gap if isinstance(gap, int) and GAP <= gap <= 80 else default_gap,
             "index": index,
             "branch": branch,
-            # `hidden` keeps an entry out of its parent's row (still reachable
-            # by a physical key, `t1tb goto`, or as a child level).
+            # `hidden` 让节点不出现在父层的一行里（仍可通过物理键、
+            # `t1tb goto` 或作为子层进入）。
             "hidden": bool(entry.get("hidden")),
         })
     if path:
@@ -396,7 +389,7 @@ def build_layout(w, h, config, path=()):
     for item in reversed([k for k in keys if not k.get("hidden")]):
         rect = (right - button_w, 0, right, h)
         items.append((rect, item))
-        # Gap to the LEFT of this key, i.e. between keys[index-1] and this one.
+        # 这个键左侧的间距，即 keys[index-1] 和它之间的间距。
         right -= button_w + int(item["gap"])
 
     text_rect = None
@@ -469,15 +462,15 @@ def render_frame(w, h, config, text, pressed_key=None, path=()):
         font = f_word if len(label) <= 1 else f_wide
         plate(rect, label, font, pressed_key == label)
         if item.get("branch"):
-            # Branch key: a chevron marks "there is another level in here".
+            # 分支键：箭头表示"这里面还有一层"。
             draw.text((rect[2] - 22, 14), "›", font=f_small, fill=LABEL_DIM)
         elif item["type"] == "up":
-            # Level key: mirror hint that a tap goes back up.
+            # 层级键：镜像提示，点击会返回上一级。
             draw.text((rect[0] + 10, 14), "‹", font=f_small, fill=LABEL_DIM)
     return img
 
 
-# --------------------------------------------------------------- renderer
+# --------------------------------------------------------------- 渲染器
 
 
 class TouchBar:
@@ -498,8 +491,8 @@ class TouchBar:
         self.dirty = True
         self.ctl = None
         self.suspend_offset = self._suspend_offset()
-        # Level we were on before a physical key (Fn) switched us away, so the
-        # same key press can put us back exactly there.
+        # 物理键（Fn）把我们从当前层切走之前所在的层，这样再按一次同一个键
+        # 就能准确回到那里。
         self.key_return_path = None
 
         size = width * height * 4
@@ -510,7 +503,7 @@ class TouchBar:
         self._install_signals()
         self._open_key_device()
 
-    # ---------- config ----------
+    # ---------- 配置 ----------
     def _config_mtime(self):
         try:
             return CONFIG_PATH.stat().st_mtime
@@ -523,33 +516,31 @@ class TouchBar:
             self.cfg_mtime = mtime
             self.config = load_config()
             if level_entries(self.config, self.path) is None:
-                self.path = ()   # the edited tree dropped the level we were in
+                self.path = ()   # 编辑后的树丢掉了我们所在的层
                 self._sync_mode()
             log("config reloaded")
-            # A node may have gained/lost `key:`; re-resolve the device so the
-            # shortcut follows the config without a restart.
+            # 节点可能增删了 `key:`；重新解析设备，让快捷键跟随配置变化而无需重启。
             if self.key_fd is not None:
                 os.close(self.key_fd)
                 self.key_fd = None
             self._open_key_device()
             self.dirty = True
 
-    # ---------- physical keys ----------
+    # ---------- 物理键 ----------
     def _open_key_device(self):
-        """Open the keyboard's evdev node read-only, for nodes declaring `key:`.
+        """以只读方式打开键盘的 evdev 节点，供声明了 `key:` 的节点使用。
 
-        Only devices whose name is in KEY_DEVICES are opened, and only if some
-        node actually declares a key — otherwise the renderer leaves the keyboard
-        completely alone. A missing device is not an error: the bar keeps working
-        and only the physical-key shortcut is unavailable.
+        只打开名称在 KEY_DEVICES 里的设备，并且仅当有节点真的声明了 key——
+        否则渲染器完全不碰键盘。设备不存在不算错误：条形界面照常工作，
+        只是物理键快捷键不可用。
         """
         self.key_fd = None
         wanted = self.key_bindings()
         if not wanted:
             return
         for event in sorted(Path("/dev/input").glob("event*")):
-            # The device name lives in sysfs — /dev/input/eventN is a character
-            # device, so "/dev/input/eventN/device/name" does not exist.
+            # 设备名在 sysfs 里——/dev/input/eventN 是字符设备，
+            # 所以 "/dev/input/eventN/device/name" 并不存在。
             try:
                 name = Path(f"/sys/class/input/{event.name}/device/name").read_text(
                     encoding="utf-8").strip()
@@ -567,7 +558,7 @@ class TouchBar:
         log("no key device found; physical-key levels disabled")
 
     def key_bindings(self):
-        """{keycode: path} for every node declaring `key: "<name>"`."""
+        """每个声明 `key: "<name>"` 的节点的 {键码: 路径}。"""
         found = {}
 
         def walk(entries, prefix):
@@ -582,7 +573,7 @@ class TouchBar:
         return found
 
     def poll_keys(self):
-        """Read pending key events; a tap of a bound key toggles its level."""
+        """读取待处理的按键事件；点击已绑定的键会切换对应层。"""
         if self.key_fd is None:
             return
         while True:
@@ -599,8 +590,8 @@ class TouchBar:
                 return
             for off in range(0, len(data) - 23, 24):
                 _sec, _usec, etype, code, value = struct.unpack("<qqHHi", data[off:off + 24])
-                # value 1 = press, 2 = autorepeat, 0 = release. Only act on press
-                # so holding the key cannot flicker between levels.
+                # value 1 = 按下，2 = 自动重复，0 = 松开。只响应按下，
+                # 这样长按不会让层来回闪。
                 if etype != 1 or value != 1:
                     continue
                 path = self.key_bindings().get(code)
@@ -619,7 +610,7 @@ class TouchBar:
             log(f"key {code} on -> {'/'.join(map(str, path))}")
             self.goto(path)
 
-    # ---------- control socket ----------
+    # ---------- 控制 socket ----------
     def _open_control(self):
         STATE.mkdir(parents=True, exist_ok=True)
         try:
@@ -700,7 +691,7 @@ class TouchBar:
             threading.Thread(target=self.close_agent, daemon=True).start()
             return {"ok": True, "closing": True}
         if cmd == "key":
-            # t1tb key f5 → a real F5 to the focused window.
+            # t1tb key f5 → 向聚焦窗口发送真实的 F5。
             name = str(req.get("name") or "").lower()
             code = KEY_TAP.get(name)
             if code is None:
@@ -714,13 +705,13 @@ class TouchBar:
         raise ValueError(f"unknown cmd {cmd!r}")
 
     def _delayed_exit(self):
-        # A SystemExit raised inside a worker thread only ends that thread; the
-        # render loop must be torn down by the main thread instead.
+        # 在工作线程里抛 SystemExit 只会结束那个线程；
+        # 渲染循环必须由主线程来收尾。
         time.sleep(0.2)
         log("shutting down")
         os._exit(0)
 
-    # ---------- hardware buffers ----------
+    # ---------- 硬件缓冲区 ----------
     def _register(self, buf_id, width, height, size):
         fd = os.memfd_create(f"tb-{buf_id}", os.MFD_ALLOW_SEALING)
         os.ftruncate(fd, size)
@@ -757,12 +748,12 @@ class TouchBar:
             elif mtype == INPUT_FRAME:
                 self.on_input(payload)
 
-    # ---------- drawing ----------
+    # ---------- 绘制 ----------
     def go_root(self):
         self.goto(())
 
     def _sync_mode(self):
-        """`mode` is informational: "normal" at the root, else the level's label."""
+        """`mode` 只是提示信息：在根层为 "normal"，否则是该层的 label。"""
         self.mode = "normal" if not self.path else str(
             (node_at(self.config, self.path) or {}).get("label", "level"))
 
@@ -785,7 +776,7 @@ class TouchBar:
             except OSError:
                 pass
 
-    # ---------- input ----------
+    # ---------- 输入 ----------
     def on_input(self, payload):
         if len(payload) < 12:
             return
@@ -841,8 +832,8 @@ class TouchBar:
         if item is None:
             return
         log(f"tap {item['type']}:{item['label']} at {x},{y}")
-        # Tree navigation changes the bar's own state, so it stays on this
-        # (input) thread; leaf actions still run off-thread.
+        # 树导航改变的是条形界面自身的状态，所以留在当前
+        # （输入）线程；叶子节点的动作仍在独立线程执行。
         if item["type"] == "up":
             self.pop_level()
             return
@@ -855,7 +846,7 @@ class TouchBar:
             log(f"dispatch failed: {exc}")
 
     def goto(self, path):
-        """Jump to a tree path (root is ()), used by the socket commands."""
+        """跳到某个树路径（根层是 ()），供 socket 命令使用。"""
         if level_entries(self.config, path) is None:
             return
         self.path = tuple(path)
@@ -864,7 +855,7 @@ class TouchBar:
         self.dirty = True
         self.maybe_render()
 
-    # ---------- tree navigation ----------
+    # ---------- 树导航 ----------
     def push_level(self, index):
         entries = level_entries(self.config, self.path)
         if not entries or not 0 <= index < len(entries):
@@ -892,7 +883,7 @@ class TouchBar:
         self.dirty = True
         self.maybe_render()
 
-    # ---------- actions ----------
+    # ---------- 动作 ----------
     def perform(self, item):
         kind = item["type"]
         try:
@@ -910,24 +901,23 @@ class TouchBar:
                 else:
                     self.focus_agent()
                     record_event({"label": item["label"], "action": "focus"})
-        except Exception as exc:  # never kill the render loop
+        except Exception as exc:  # 绝不能让渲染循环挂掉
             log(f"action {kind} failed: {exc}")
             record_event({"label": item.get("label", "?"), "action": "error", "error": str(exc)})
 
     def send_keys(self, codes):
-        """Send real key taps to the focused window through the T1 (TapKeys).
+        """通过 T1（TapKeys）向聚焦窗口发送真实按键。
 
-        This is how the Fn layer produces F1–F12: the bar is the keyboard's
-        peer here, so the key event comes from the hardware path, not from
-        wtype (which needs a Wayland input seat and would be refused while the
-        Touch Bar has focus).
+        Fn 层就是这样产生 F1–F12 的：条形界面在这里是键盘的对等设备，
+        按键事件走硬件通道，而不是 wtype（后者需要 Wayland input seat，
+        在 Touch Bar 获得焦点时会被拒绝）。
         """
         codes = [int(c) for c in codes][:4]
         if not codes:
             return
-        count = len(codes)  # the real key count; unused slots are zero, and the
-        # service rejects a count that would make those zeros look like repeats
-        # (TapKeys v1: "unused slots are zero and duplicates are invalid").
+        count = len(codes)  # 真实按键数；未用槽位填 0，服务会拒绝
+        # 让那些 0 看起来像重复键的 count
+        # （TapKeys v1 规定 "unused slots are zero and duplicates are invalid"）。
         codes += [0] * (4 - count)
         self.sock.send(packet(TAP_KEYS, struct.pack("<B3x4H", count, *codes), 300))
 
@@ -935,23 +925,23 @@ class TouchBar:
         self.send_keys([KEY_ESC])
 
     def run_action(self, action):
-        """One form only: `cmd:<shell>`. Everything a key does is a command."""
+        """只有一种形式：`cmd:<shell>`。按键做的一切都是命令。"""
         if not action.startswith("cmd:"):
             raise ValueError(f"bad action {action!r} (only cmd:<shell> is supported)")
         subprocess.Popen(["sh", "-c", action[4:]], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def step_display(self, up):
-        """Step the panel backlight through the T1, then show it on the OSD.
+        """通过 T1 调节面板背光一档，并在 OSD 上显示。
 
-        Only the process owning /run/t1bridge/touchbar.sock can send this opcode
-        — there is no sysfs channel — so this stays in the renderer and `t1tb
-        display up|down` asks for it over the control socket.
+        只有独占 /run/t1bridge/touchbar.sock 的进程才能发这个 opcode
+        ——没有 sysfs 通道——所以逻辑留在渲染器里，`t1tb display up|down`
+        通过控制 socket 请求它。
         """
         before, _top = display_brightness()
         self.sock.send(packet(STEP_DISPLAY, b"\x01" if up else b"\x00", 301))
         cur, top = before, None
-        for _ in range(12):  # the T1 applies the step asynchronously
+        for _ in range(12):  # T1 是异步应用这一档的
             time.sleep(0.025)
             cur, top = display_brightness()
             if cur != before:
@@ -961,11 +951,11 @@ class TouchBar:
             return
         osd("brightness", int(round(cur * 100 / (top or 1))))
 
-    # ---------- agent window plumbing ----------
+    # ---------- agent 窗口处理 ----------
     @staticmethod
     def _cmdlines(root_pid, depth=4):
-        """cmdlines of root_pid and its descendants (the agent may be the
-        terminal's child: `foot -e hermes chat`, or a shell's child)."""
+        """root_pid 及其后代的命令行（agent 可能是终端的子进程：
+        `foot -e hermes chat`，或者 shell 的子进程）。"""
         kids = {}
         try:
             for entry in Path("/proc").iterdir():
@@ -995,12 +985,11 @@ class TouchBar:
         return out
 
     def window_match(self):
-        """Window keywords for focus_agent(), from the tree.
+        """focus_agent() 用的窗口关键词，来自配置树。
 
-        The innermost node on the current path that declares `windowMatch` wins
-        (so the agent branch owns its own match list); at the root the first
-        declaration anywhere in the tree is used. With no declaration at all it
-        falls back to DEFAULT_AGENT_MATCH. Nothing is hard-coded to one agent.
+        当前路径上最内层声明 `windowMatch` 的节点胜出
+        （所以 agent 分支可以有自己的匹配列表）；在根层则用树中第一个声明。
+        完全没声明时回退到 DEFAULT_AGENT_MATCH。没有任何 agent 被硬编码。
         """
         entries = self.config.get("children") or []
         found = None
@@ -1041,8 +1030,8 @@ class TouchBar:
             if any(w in haystack for w in words):
                 hits.append(client)
                 continue
-            # A plain terminal running the agent identifies nothing in its
-            # class/title (`foot` / `foot`), so look at its process tree.
+            # 运行 agent 的普通终端在 class/title 上没有特征
+            # （`foot` / `foot`），所以要看它的进程树。
             if str(client.get("class", "")).lower() not in TERMINAL_CLASSES:
                 continue
             try:
@@ -1053,8 +1042,7 @@ class TouchBar:
                 hits.append(client)
         if not hits:
             return None
-        # Tapping the key must land in the window the user is looking at, not
-        # whichever client Hyprland listed first.
+        # 按键必须落到用户正在看的窗口，而不是 Hyprland 列表里的第一个客户端。
         return min(hits, key=lambda c: c.get("focusHistoryID", 1 << 30))
 
     def focus_agent(self):
@@ -1062,8 +1050,8 @@ class TouchBar:
         if not client:
             osd(None, None, message="没找到 AI 窗口")
             return False
-        # Hyprland 0.56 routes `hyprctl dispatch` through its Lua dispatchers, so
-        # the classic "focuswindow address:0x..." form is a parse error.
+        # Hyprland 0.56 把 `hyprctl dispatch` 路由到它的 Lua dispatcher，
+        # 所以老式的 "focuswindow address:0x..." 写法是解析错误。
         run_cmd(["hyprctl", "dispatch",
                  f'hl.dsp.focus({{window="address:{client["address"]}"}})'])
         time.sleep(0.18)
@@ -1072,7 +1060,7 @@ class TouchBar:
     def window_alive(self, address):
         got = run_cmd(["hyprctl", "clients", "-j"])
         if not got or not got.stdout:
-            return True  # cannot tell; assume alive so the caller escalates
+            return True  # 无法判断；假定还活着，让调用方继续升级处理
         try:
             clients = json.loads(got.stdout)
         except Exception:
@@ -1081,11 +1069,11 @@ class TouchBar:
                    for c in clients)
 
     def close_agent(self):
-        """Close the agent window; escalate to kill if the app ignores close.
+        """关闭 agent 窗口；应用不响应关闭请求时升级为 kill。
 
-        Electron/Chromium (the Hermes desktop app) answers `xdg_toplevel.close`
-        with "ok" and then keeps the window — the polite request is a no-op
-        there. Terminals honour it. So: ask politely, wait, check, then kill.
+        Electron/Chromium（Hermes 桌面应用）收到 `xdg_toplevel.close` 会回 "ok"
+        然后保持窗口不关——礼貌请求对它无效。终端会正常关闭。
+        所以：先礼貌请求，等待，检查，再 kill。
         """
         client = self.agent_window()
         if not client:
@@ -1094,7 +1082,7 @@ class TouchBar:
         address = client["address"]
         run_cmd(["hyprctl", "dispatch",
                  f'hl.dsp.window.close({{window="address:{address}"}})'])
-        for _ in range(6):  # up to ~1.5 s; most windows close on the first tick
+        for _ in range(6):  # 最多约 1.5 秒；多数窗口第一下就关了
             time.sleep(0.25)
             if not self.window_alive(address):
                 osd(None, None, message="会话已结束")
@@ -1126,11 +1114,11 @@ class TouchBar:
             time.sleep(0.12)
             run_cmd(["wtype", "-k", "Return"])
 
-    # ---------- loop ----------
+    # ---------- 循环 ----------
     def _suspend_offset(self):
-        """Accumulated suspend time: CLOCK_BOOTTIME counts it, CLOCK_MONOTONIC
-        does not. The difference only grows when the machine has slept, which
-        is the dependency-free way to notice a resume (no dbus/logind needed)."""
+        """累计休眠时间：CLOCK_BOOTTIME 会计入，CLOCK_MONOTONIC 不会。
+        两者差值只在机器睡过之后才增长，这是无需依赖就能发现唤醒的方式
+        （不需要 dbus/logind）。"""
         try:
             return (time.clock_gettime(time.CLOCK_BOOTTIME)
                     - time.clock_gettime(time.CLOCK_MONOTONIC))
@@ -1138,10 +1126,10 @@ class TouchBar:
             return None
 
     def _check_resume(self):
-        """appletbdrm loses its scanout across suspend: the socket stays
-        ESTABLISHED and this process stays alive, but nothing repaints, so the
-        bar stays dark until something re-runs HELLO + register + submit.
-        Re-exec instead of patching it up, so we come back in a known state."""
+        """appletbdrm 在休眠后会丢失 scanout：socket 仍是 ESTABLISHED，进程也还活着，
+        但没有任何重绘，所以条形界面一直是黑的，直到有人重新跑 HELLO +
+        register + submit。这里选择重新执行自身而不是打补丁，
+        这样能回到一个确定的状态。"""
         offset = self._suspend_offset()
         if offset is None:
             return False
@@ -1206,9 +1194,9 @@ def osd(icon=None, percent=None, message=None):
     run_cmd(cmd)
 
 
-# ---------- display backlight ----------
-# The panel backlight is stepped through the T1 (STEP_DISPLAY), not through
-# sysfs; acpi_video0 only reports the resulting value.
+# ---------- 显示背光 ----------
+# 面板背光通过 T1（STEP_DISPLAY）调节，而不是 sysfs；
+# acpi_video0 只上报调节后的结果值。
 DISPLAY_BL = Path("/sys/class/backlight/acpi_video0")
 
 
