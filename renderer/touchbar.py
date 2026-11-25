@@ -31,8 +31,10 @@ line request / one JSON line reply:
 Nothing in the config is special: there is no "AI mode", only levels of the one
 tree. Use the `t1tb` CLI instead of talking to it directly.
 
-Config: view.json5 (JSON5: comments, trailing commas, bare keys) in the plugin
-directory, reloaded on save. One file, one tree, no legacy shapes.
+Config: ~/.config/omarchy/wwx.touchbar.view.json5 (JSON5: comments, trailing
+commas, bare keys), reloaded on save. One file, one tree, no legacy shapes.
+It lives outside the plugin directory on purpose: the plugin dir is code that
+gets reinstalled, the button tree is user data. Override with $T1TB_CONFIG.
 """
 
 import fcntl
@@ -58,8 +60,12 @@ except ImportError:  # fall back to strict JSON, and say so in the log
 
 HOME = Path.home()
 PLUGIN = HOME / ".config/omarchy/plugins/wwx.touchbar"
-# JSON5 (comments, trailing commas, bare keys). One file, no fallbacks.
-CONFIG_PATH = PLUGIN / "view.json5"
+# The button tree is user data, so it lives beside shell.json in the omarchy
+# config root rather than inside the plugin directory, which is code and gets
+# replaced on reinstall. The filename carries the plugin id because that root is
+# shared with the rest of omarchy's config.
+CONFIG_PATH = Path(os.environ.get("T1TB_CONFIG")
+                   or HOME / ".config/omarchy/wwx.touchbar.view.json5")
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(HOME / ".local/state"))) / "t1-touchbar"
 EVENTS = STATE / "ai-events.jsonl"
 CTL_PATH = STATE / "ai.sock"
@@ -207,6 +213,7 @@ def load_config():
     except FileNotFoundError:
         cfg = json.loads(json.dumps(DEFAULT_CONFIG))
         try:
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
             CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n",
                                    encoding="utf-8")
             log(f"wrote default config {CONFIG_PATH}")

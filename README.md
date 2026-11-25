@@ -1,8 +1,8 @@
 # wwx.touchbar
 
 Touch Bar UI for Omarchy on a t1bridge MacBook: one configurable button tree
-(view.json5), drawn by our own renderer, driven by the `t1tb` CLI and the agent's
-shell hooks. The AI interaction keys are just one branch of that tree.
+(wwx.touchbar.view.json5), drawn by our own renderer, driven by the `t1tb` CLI and
+the agent's shell hooks. The AI interaction keys are just one branch of that tree.
 
 The Touch Bar is a DRM device with exactly one owner
 (`/run/t1bridge/touchbar.sock`). This plugin is a `service` plugin: it stops the
@@ -12,12 +12,23 @@ stops it when the plugin is unloaded.
 ```
 manifest.json          kind: service
 Service.qml            supervisor (Quickshell Process, 3 s restart on exit)
-view.json5             the whole button tree (JSON5)
+view.example.json5     the shipped button tree (copied to the user path on first run)
 renderer/touchbar.py   the renderer (Hello / buffers / draw / tap)
 renderer/t1tb.py       control CLI (symlinked to ~/.local/bin/t1tb)
 renderer/launch.sh     stop stock renderer, exec renderer
 hooks/human-input.py   Hermes shell hook → touch bar mode + voice
 ```
+
+The live config is **not** in this directory. It is user data, so it lives in
+the omarchy config root next to `shell.json`:
+
+```
+~/.config/omarchy/wwx.touchbar.view.json5      your button tree (override: $T1TB_CONFIG)
+```
+
+The plugin directory is code — a reinstall replaces it — so keeping the tree
+here would make every reinstall fight your edits. If the file is missing the
+renderer writes the built-in default there on first start.
 
 ## Agent notifications
 
@@ -115,12 +126,14 @@ CJK text cannot be typed with `wtype`, so non-ASCII inserts go through
 `wl-copy` + `Ctrl+Shift+V` (the clipboard is restored afterwards). ASCII inserts
 are typed directly.
 
-## view.json5
+## wwx.touchbar.view.json5
 
-JSON5, reloaded on save — no restart. Comments, trailing commas and bare keys
-all work. (JSON5 does **not** forgive a *missing separator* comma — `{a:1 b:2}`
-is still an error; it forgives `{a:1, b:2,}`.) The older `buttons.json5` and
-`buttons.json` are still read if no `view.json5` exists.
+`~/.config/omarchy/wwx.touchbar.view.json5` (or `$T1TB_CONFIG`). JSON5,
+reloaded on save — no restart. Comments, trailing commas and bare keys all
+work. (JSON5 does **not** forgive a *missing separator* comma — `{a:1 b:2}` is
+still an error; it forgives `{a:1, b:2,}`.) A missing file is recreated from the
+built-in default; a file that fails to parse says so in an `omarchy-osd` notice
+and the renderer keeps the built-in tree, so a typo cannot silently pass.
 
 ```json5
 {
@@ -172,8 +185,8 @@ is still an error; it forgives `{a:1, b:2,}`.) The older `buttons.json5` and
 - Buttons render left-to-right in array order: the first entry sits leftmost,
   the last one next to the level key.
 - A file that will not parse falls back to the built-in layout **and** shows an
-  `omarchy-osd` notice (`配置有误(view.json5)：…`), so a typo cannot silently pass
-  as "the bar looks fine".
+  `omarchy-osd` notice (`配置有误(wwx.touchbar.view.json5)：…`), so a typo cannot
+  silently pass as "the bar looks fine".
 
 ## Agent side
 

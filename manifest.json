@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "author": "wwx",
   "license": "MIT",
-  "description": "Touch Bar UI for Omarchy: a configurable button tree (view.json5), the t1tb control CLI, agent status/notify hooks, and a service that owns the t1bridge DRM device.",
+  "description": "Touch Bar UI for Omarchy: a configurable button tree (omarchy/wwx.touchbar.view.json5), the t1tb control CLI, agent status/notify hooks, and a service that owns the t1bridge DRM device.",
   "kinds": [
     "service"
   ],

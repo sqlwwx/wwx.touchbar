@@ -1,1 +1,3 @@
 __pycache__/
+# live config lives in ~/.config/omarchy/wwx.touchbar.view.json5; never commit one here
+view.json5
