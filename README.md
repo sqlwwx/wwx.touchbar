@@ -76,7 +76,7 @@ you restart it.
 normal   esc | ............ | 音+ 音− │ 静音 │ 亮+ 亮− │ 键+ 键− 键灯 ‖ AI
 ai       esc | agent text .. | 生 死 ‖ 善 恶 │ 引 易 │ 习 册 ‖ AI
 
-│ = groupGap (22), ‖ = aiGap (44)
+│ = wider left gap (22), ‖ = left gap before AI (44) — plain `gap` values on keys, not groupGap/aiGap fields
 ```
 
 Keyboard-backlight keys drive applespi's `spi::kbd_backlight` LED directly:

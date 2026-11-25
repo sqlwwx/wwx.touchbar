@@ -49,7 +49,7 @@ t1tb status    # 渲染器在跑时经 socket 问一句，返回 JSON
   `key`（物理键触发）、`hidden`、`buttonWidth`（层内可覆盖，Fn 层用它画 F1–F12）、`action`。
   顶层只放 `buttonWidth` / `gap` / `levelGap` / `children`。旧文档的 `groupGap` / `aiGap` 已废，
   改用键上的显式 `gap`；JSON5 不原谅缺分隔符逗号。
-- 清洗静默夹取、不报错：`depth > 4` 丢弃该层、`buttonWidth` 80–182、`gap` 8–80。
+- 清洗夹取会写日志（不再静默）：`depth > 4` 丢弃该层、`buttonWidth` 80–182、`gap` 4–80。
 - 命令分类：完全本地的是 `volume` / `kbd` / `voice`；`display`、`goto`、`text`、`insert`、`close`、
   `status` / `normal` / `quit` / `root` 走 socket，要求渲染器在跑，否则 `renderer not running`。
   `finish` 的 arm 判断在本地（TTL 内再击才关），两个动作都发 socket；`close` 先 `hl.dsp.window.close`、

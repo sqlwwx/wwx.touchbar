@@ -17,11 +17,13 @@ Payload arrives as JSON on stdin; stdout is ignored for these observer events.
 Any failure is swallowed: a hook must never disturb the agent loop.
 """
 
+import fcntl
 import json
 import os
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 HOME = Path.home()
@@ -120,10 +122,33 @@ def load_pending():
     return fresh
 
 
+@contextmanager
+def pending_lock():
+    """Serialize hook read-modify-write; degrade to no lock if locking fails."""
+    handle = None
+    try:
+        STATE.mkdir(parents=True, exist_ok=True)
+        handle = PENDING.with_suffix(".lock").open("a+")
+        fcntl.flock(handle, fcntl.LOCK_EX)
+    except OSError as exc:
+        log(f"pending lock unavailable: {exc}")
+    try:
+        yield
+    finally:
+        if handle is not None:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+                handle.close()
+            except OSError:
+                pass
+
+
 def save_pending(data):
     try:
         STATE.mkdir(parents=True, exist_ok=True)
-        PENDING.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp = PENDING.with_name(f"{PENDING.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, PENDING)
     except OSError as exc:
         log(f"pending write failed: {exc}")
 
@@ -134,17 +159,18 @@ def on_request(payload, extra):
     prompt = clean(extra.get("prompt"))
     label = KIND_LABEL.get(kind, "等待确认")
 
-    pending = load_pending()
-    # `hermes hooks test` fires with no request_id; key those by kind so a
-    # repeated synthetic run does not stack up phantom pending prompts.
-    key = request_id or f"anon:{kind}"
-    pending[key] = {
-        "kind": kind,
-        "prompt": prompt,
-        "since": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "epoch": time.time(),
-    }
-    save_pending(pending)
+    with pending_lock():
+        pending = load_pending()
+        # `hermes hooks test` fires with no request_id; key those by kind so a
+        # repeated synthetic run does not stack up phantom pending prompts.
+        key = request_id or f"anon:{kind}"
+        pending[key] = {
+            "kind": kind,
+            "prompt": prompt,
+            "since": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "epoch": time.time(),
+        }
+        save_pending(pending)
 
     text = f"{label}：{prompt}" if prompt else label
     t1tb("goto", "AI", "-t", text)
@@ -156,14 +182,17 @@ def on_request(payload, extra):
 def on_resolved(extra):
     request_id = str(extra.get("request_id") or "")
     outcome = str(extra.get("outcome") or "")
-    pending = load_pending()
-    if request_id:
-        pending.pop(request_id, None)
-    else:
-        # No id to match on: clear every synthetic entry, since the paired
-        # request could not be identified either.
-        for key in [k for k in pending if k.startswith("anon:")]:
-            pending.pop(key, None)
+    with pending_lock():
+        pending = load_pending()
+        if request_id:
+            pending.pop(request_id, None)
+        else:
+            # No id to match on: clear every synthetic entry, since the paired
+            # request could not be identified either.
+            for key in [k for k in pending if k.startswith("anon:")]:
+                pending.pop(key, None)
+        save_pending(pending)
+
     if pending:
         # Another prompt is still waiting: show the newest one instead of
         # dropping back to the normal bar.
@@ -173,7 +202,6 @@ def on_resolved(extra):
         t1tb("goto", "AI", "-t", f"{label}：{prompt}" if prompt else label)
     else:
         t1tb("normal")
-    save_pending(pending)
     log(f"resolved id={request_id} outcome={outcome} pending={len(pending)}")
 
 

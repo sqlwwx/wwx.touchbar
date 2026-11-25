@@ -98,7 +98,7 @@ LABEL = (242, 242, 242)
 LABEL_DIM = (200, 200, 200)
 
 BUTTON_W = 182
-GAP = 8
+GAP = 4
 # Gap to the left of the level key (the "‹level name" key you get once you have
 # descended), so it reads as a way out rather than one more control.
 LEVEL_GAP = 44
@@ -115,7 +115,7 @@ TERMINAL_CLASSES = ("foot", "alacritty", "kitty", "ghostty", "org.wezfurlong.wez
 
 DEFAULT_CONFIG = {
     "buttonWidth": 96,
-    "gap": 8,          # default spacing between keys; an entry's own `gap` wins
+    "gap": 4,          # default spacing between keys; an entry's own `gap` wins
     "levelGap": 44,    # gap left of the level key
     "children": [
         {"label": "音 +", "action": "cmd: t1tb volume up"},
@@ -183,7 +183,11 @@ def clean_entries(items, depth=0):
     Depth is capped so a hand-edited file cannot make the bar unreachable.
     """
     out = []
-    if not isinstance(items, list) or depth > 4:
+    if not isinstance(items, list):
+        return out
+    if depth > 4:
+        if depth == 5:
+            log("配置嵌套超过 4 层，更深的节点已忽略")
         return out
     for item in items:
         if not isinstance(item, dict) or not item.get("label"):
@@ -234,10 +238,14 @@ def load_config():
     width = raw.get("buttonWidth")
     if isinstance(width, int) and 80 <= width <= BUTTON_W:
         cfg["buttonWidth"] = width
+    elif width is not None:
+        log(f"忽略 buttonWidth={width!r}：需为 80–{BUTTON_W} 的整数")
     for key in ("gap", "levelGap"):
         gap = raw.get(key)
         if isinstance(gap, int) and GAP <= gap <= 80:
             cfg[key] = gap
+        elif gap is not None:
+            log(f"忽略 {key}={gap!r}：需为 {GAP}–80 的整数")
     return cfg
 
 
@@ -341,10 +349,10 @@ def level_row(config, path):
 def build_layout(w, h, config, path=()):
     """Return (esc_rect, text_rect|None, [(rect, item)]).
 
-    One tree, one row per level. Buttons with a different `group` value get a
-    wider gap, so related pairs read as one block; an entry's own `gap` overrides
-    that for its left side. An entry with `children` is a branch: the tap
-    descends a level instead of acting. While descended the rightmost key is the
+    One tree, one row per level. Each entry's own `gap` sets the space to its
+    left, so related keys read as one block when given a wider left gap. An
+    entry with `children` is a branch: the tap descends a level instead of
+    acting. While descended the rightmost key is the
     level key: it carries the name of the level you are in with a `‹` hint and
     pops back up. At the root there is no level key, and every entry — the `AI`
     branch included — is drawn purely from its own fields.
