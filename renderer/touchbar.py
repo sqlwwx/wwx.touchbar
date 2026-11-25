@@ -1,5 +1,5 @@
 #!/home/wwx/.local/share/t1-touchbar/venv/bin/python3
-"""wwx.touchbar — Touch Bar UI for the Omarchy agent (t1bridge renderer).
+"""wwx.touchbar — Touch Bar UI for Omarchy (t1bridge renderer).
 
 Owns /run/t1bridge/touchbar.sock and draws ONE tree, one level at a time:
 

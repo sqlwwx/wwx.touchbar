@@ -1,6 +1,8 @@
 # wwx.touchbar
 
-Touch Bar UI for the Omarchy agent on a t1bridge MacBook.
+Touch Bar UI for Omarchy on a t1bridge MacBook: one configurable button tree
+(view.json5), drawn by our own renderer, driven by the `t1tb` CLI and the agent's
+shell hooks. The AI interaction keys are just one branch of that tree.
 
 The Touch Bar is a DRM device with exactly one owner
 (`/run/t1bridge/touchbar.sock`). This plugin is a `service` plugin: it stops the
@@ -11,7 +13,7 @@ stops it when the plugin is unloaded.
 manifest.json          kind: service
 Service.qml            supervisor (Quickshell Process, 3 s restart on exit)
 view.json5             the whole button tree (JSON5)
-renderer/touchbar.py  the renderer (Hello / buffers / draw / tap)
+renderer/touchbar.py   the renderer (Hello / buffers / draw / tap)
 renderer/t1tb.py       control CLI (symlinked to ~/.local/bin/t1tb)
 renderer/launch.sh     stop stock renderer, exec renderer
 hooks/human-input.py   Hermes shell hook → touch bar mode + voice
